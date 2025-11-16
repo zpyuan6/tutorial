@@ -1,4 +1,4 @@
-import argparse
+import argparse 
 import contextlib
 import uvicorn
 import asyncio
@@ -26,8 +26,10 @@ from a2a.utils import (
 from agentbeats.green_executor import GreenAgent, GreenExecutor
 from agentbeats.models import EvalRequest, EvalResult
 from agentbeats.tool_provider import ToolProvider
+import pandas as pd
 
-from debate_judge_common import DebateEval, debate_judge_agent_card
+
+from assistant_evaluation_common import ResponseEval, assistant_evaluation_agent_card
 
 
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +58,89 @@ class GAIAAssistantEvaluator(GreenAgent):
         logger.info(f"Starting GAIA assistant evaluation: {req}")
 
         try:
-            response = await self.
+
+            start_time = asyncio.get_event_loop().time()
+            response = await self.assistant_response(
+                req.participants,
+                req.config["query"],
+                updater,
+            )
+            time_consumed = asyncio.get_event_loop().time() - start_time
+
+            await updater.update_status(
+                TaskState.working, 
+                new_agent_text_message(f"Assistant response: {response}")
+                )
+            logger.info(f"Assistant response obtained. Evaluating response.")
+            isCorrect: bool = await self.evaluate_response(
+                req.config["query"],
+                req.config["evaluation_criteria"],
+                response,
+            )
+            response_eval = ResponseEval(
+                final_answer = response,
+                ground_truth = req.config["groud_truth"],
+                is_correct = isCorrect,
+                query_level = req.config["query_level"],
+                time_to_answer_sec = time_consumed,
+            )
+            logger.info(f"Response Evaluation:\n{response_eval.model_dump_json()}")
+
+            await updater.add_artifact(
+                parts=[
+                    Part(root=TextPart(text=response_eval.model_dump_json()))
+                ],
+                name ="Result",
+            )
+
+        finally:
+            self._tool_provider.reset()
+
+
+    async def assistant_response(
+        self,
+        participants: dict[str, str],
+        query: str,
+        updater: TaskUpdater,
+    ) -> dict[str, list[str]]:
+        responses: dict[str, list[str]] = {"assistant": []}
+
+        async def turn(role: str, prompt: str) -> str:
+            response = await self._tool_provider.talk_to_agent(prompt, str(participants[role]), new_conversation=False)
+            logger.info(f"{role}: {response}")
+            responses[role].append(response)
+            await updater.update_status(TaskState.working, new_agent_text_message(f"{role}: {response}"))
+            return response
+
+        # Opening turns
+        r = await turn("assistant", f"User query: {query}. Response user query.")
+
+        return  responses
+    
+    async def evaluate_response(self, user_query: str, response: str) -> bool:
+        # prompt adapted from GAIA evaluation guidelines:
+
+        system_prompt = """
+                        You are an expert evaluator for AI assistants. Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. Provide a bool value to indicate correctness for generated responses.
+                        """
+        
+        user_prompt = f"""
+                        Evaluate the response from the AI assistant to the user query: '{user_query}'
+                        Response: '{response}'
+                        Provide a JSON formatted response with scores and  comments for each criterion for both debaters.
+                        """
+        
+        response = self._client.models.generate_content(
+            model = "gemini-2.5-flash",
+            config = genai.types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=bool,
+            ),
+            content = user_prompt
+        )
+
+        return response
 
 
 async def main():
@@ -73,10 +157,14 @@ async def main():
     else:
         agent_url_cm = contextlib.nullcontext(args.card_url or f"http://{args.host}:{args.port}/")
 
+    splits = {'test': '2023/test/metadata.parquet', 'validation': '2023/validation/metadata.parquet'}
+    df = pd.read_parquet("hf://datasets/gaia-benchmark/GAIA/" + splits["test"])
+    print(df)
+
     async with agent_url_cm as agent_url:
-        agent = DebateJudge()
+        agent = GAIAAssistantEvaluator()
         executor = GreenExecutor(agent)
-        agent_card = debate_judge_agent_card("DebateJudge", agent_url)
+        agent_card = assistant_evaluation_agent_card("AssistantEvaluator", agent_url)
 
         request_handler = DefaultRequestHandler(
             agent_executor=executor,
@@ -93,4 +181,6 @@ async def main():
         await uvicorn_server.serve()
 
 if __name__ == '__main__':
+
+    # Login using e.g. `huggingface-cli login` to access this dataset
     asyncio.run(main())
