@@ -1,4 +1,4 @@
-## Quickstart
+## How to start
 1. Clone (or fork) the repo:
 ```
 git clone git@github.com:agentbeats/tutorial
@@ -14,9 +14,14 @@ cp sample.env .env
 ```
 Add your Google API key to the .env file
 
-4. Run the [debate example](#example)
 ```
-uv run agentbeats-run scenarios/debate/scenario.toml
+hf auth login
+```
+Login your huggingface account for accessing GAIA dataset
+
+4. Run the [GAIA Evaluator](#example)
+```
+uv run agentbeats-run scenarios/GAIA/scenario.toml
 ```
 This command will:
 - Start the agent servers using the commands specified in scenario.toml
