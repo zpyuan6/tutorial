@@ -8,11 +8,16 @@ from a2a.types import (
 )
 
 class ResponseEval(BaseModel):
-    final_answer: float
-    ground_truth: float
+    final_answer: str
+    ground_truth: str
     is_correct: bool
-    query_level: int
+    query_level: str
     time_to_answer_sec: float
+
+class AssistantEval(BaseModel):
+    score: float
+    average_time_to_answer_sec: float
+    responses_records: list[ResponseEval]
 
 
 
