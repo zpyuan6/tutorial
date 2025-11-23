@@ -24,7 +24,7 @@ def main():
 
     root_agent = Agent(
         name="assistant",
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         description="Response user queries.",
         # instruction="You are a professional assistant.",
         instruction=(
