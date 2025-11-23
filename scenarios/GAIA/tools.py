@@ -1,9 +1,11 @@
 import os
 import requests
 import mimetypes
-# import google.generativeai as genai
+import google.generativeai as genai
 import re
 import pypdf
+import pandas as pd
+import PIL.Image
 
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
@@ -24,24 +26,56 @@ def write_file(filename: str, content: str) -> str:
     except Exception as e:
         return f"Error writing file: {str(e)}"
     
-def read_file(filename: str) -> str:
+def read_text_file(filename: str) -> str:
+    """
+    Reads plain text files (.txt, .csv, .json, .py, .md).
+    DO NOT use this for .xlsx, .pdf, or images.
+    """
     try:
         filepath = _get_safe_path(filename)
         if not os.path.exists(filepath):
-            return f"Error: File {filename} does not exist."
+            return f"Error: File {filename} not found."
         
         _, ext = os.path.splitext(filename)
-        if ext.lower() in ['.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.pdf', '.zip', '.mp3']:
-            return f"Error: File {filename} is a binary file ({ext}). Please use Python code (e.g., pandas for excel) to process it instead of `read_file`."
-
+        if ext.lower() in ['.xlsx', '.xls']:
+            return f"Error: {filename} is an Excel file. Use `read_excel` tool."
+        if ext.lower() in ['.pdf']:
+            return f"Error: {filename} is a PDF. Use `read_pdf` tool."
+            
         with open(filepath, "r", encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+            if len(content) > 10000:
+                return f"Content ({filename}):\n{content[:10000]}...\n(Truncated, file is too large)"
+            return content
+            
     except UnicodeDecodeError:
-        return "Error: Unable to decode file as text. It might be a binary file."
+        return f"Error: File {filename} is not plain text. Try another tool."
     except Exception as e:
-        return f"Error reading file: {str(e)}"
+        return f"Error reading text file: {str(e)}"
     
+def read_excel(filename: str) -> str:
+    """
+    Reads an Excel file (.xlsx) and returns its content as a Markdown table.
+    """
+    print(f"Tool: Reading Excel {filename}...")
+    try:
+        filepath = _get_safe_path(filename)
+        if not os.path.exists(filepath):
+            return f"Error: File {filename} not found."
+        
+        df = pd.read_excel(filepath, nrows=50)
+        
 
+        info = f"Shape: {df.shape} (Rows, Columns)\nColumns: {list(df.columns)}\n"
+        
+
+        markdown_table = df.to_markdown(index=False)
+        
+        return f"Excel Content ({filename}):\n{info}\n{markdown_table}\n\n(Note: Only first 50 rows displayed. If you need more analysis, use `execute_python` with pandas.)"
+        
+    except Exception as e:
+        return f"Error reading Excel: {str(e)}"
+    
 def list_files() -> str:
     """Lists all files in the current workspace."""
     try:
@@ -112,29 +146,29 @@ def read_pdf(filename: str, page_number: int = 0) -> str:
     except Exception as e:
         return f"Error reading PDF: {str(e)}"
     
-# def inspect_image(filename: str, question: str) -> str:
-#     print(f"Tool: Inspecting image {filename}...")
-#     try:
-#         filepath = _get_safe_path(filename)
-#         if not os.path.exists(filepath):
-#             return f"Error: Image {filename} not found."
+def inspect_image(filename: str, question: str) -> str:
+    print(f"Tool: Inspecting image {filename}...")
+    try:
+        filepath = _get_safe_path(filename)
+        if not os.path.exists(filepath):
+            return f"Error: Image {filename} not found."
 
-#         mime_type, _ = mimetypes.guess_type(filepath)
-#         if not mime_type:
-#             mime_type = "image/png" 
 
-#         with open(filepath, "rb") as f:
-#             image_data = f.read()
+        try:
+            img = PIL.Image.open(filepath)
+        except Exception as e:
+            return f"Error: The file exists but is not a valid image. ({str(e)})"
 
-#         image_blob = {
-#             "mime_type": mime_type,
-#             "data": image_data
-#         }
 
-#         vision_model = genai.GenerativeModel('gemini-1.5-flash')
-#         response = vision_model.generate_content([question, image_blob])
+        vision_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+        response = vision_model.generate_content([question, img])
         
-#         return f"Vision Response: {response.text}"
+
+        if response.parts:
+            return f"Vision Response: {response.text}"
+        else:
+            return "Error: Vision model refused to answer (safety filters triggered)."
         
-#     except Exception as e:
-#         return f"Error inspecting image: {str(e)}"
+    except Exception as e:
+        return f"Error inspecting image: {str(e)}"

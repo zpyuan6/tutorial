@@ -1,11 +1,13 @@
 import argparse
 import uvicorn
 from dotenv import load_dotenv
+import logging
+
 load_dotenv()
 
 from google.adk.agents import Agent
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
-from tools import read_file, write_file, visit_webpage, read_pdf
+from tools import write_file, visit_webpage, read_pdf,read_text_file,read_excel,inspect_image
 
 from a2a.types import (
     AgentCapabilities,
@@ -18,11 +20,11 @@ def main():
     parser.add_argument("--port", type=int, default=9019, help="Port to bind the server")
     parser.add_argument("--card-url", type=str, help="External URL to provide in the agent card")
     args = parser.parse_args()
-    my_tools = [read_file, write_file, visit_webpage, read_pdf]
+    my_tools = [write_file, visit_webpage, read_pdf,read_text_file,read_excel,inspect_image]
 
     root_agent = Agent(
         name="assistant",
-        model="gemini-2.5-flash-lite",
+        model="gemini-2.5-flash",
         description="Response user queries.",
         # instruction="You are a professional assistant.",
         instruction=(
@@ -35,8 +37,8 @@ def main():
             "1. **FILES:** If the user mentions a file path, use `read_file` immediately.\n"
             "2. **WEBSITES:** If the user provides a URL (e.g., 'Check https://github.com...'), "
             "IMMEDIATELY use the `visit_webpage` tool to read its content. Do not ask for permission.\n"
-            "3. **UNKNOWN INFO:** If asked about a specific topic (e.g., 'Wikipedia history of X'), "
-            "you should construct the URL yourself (e.g., 'https://en.wikipedia.org/wiki/X') "
+            "3. **UNKNOWN INFO:** If asked about a specific topic (e.g., 'Wikipedia history of X','real time information','specific books'), "
+            "you should construct the URL yourself to search it(e.g., 'https://en.wikipedia.org/wiki/X') "
             "and use `visit_webpage` to read it.\n"
             "4. **NO GUESTS:** Do not hallucinate content. Read the source."
         ),
@@ -57,6 +59,7 @@ def main():
 
     a2a_app = to_a2a(root_agent, agent_card=agent_card)
     uvicorn.run(a2a_app, host=args.host, port=args.port)
+    logging.basicConfig(level=logging.DEBUG)
 
 
 if __name__ == "__main__":

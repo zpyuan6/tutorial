@@ -71,6 +71,7 @@ class GAIAAssistantEvaluator(GreenAgent):
             
         local_filename = os.path.basename(filename)
         local_path = os.path.join(WORKSPACE_DIR, local_filename)
+        print('local_filename',local_filename)
 
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
             return local_filename 
@@ -149,7 +150,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                 response = await self.assistant_response(
                     req.participants,
                     user_query,
-                    attached_file,
+                    available_file,
                     updater,
                 )
                 time_consumed = asyncio.get_event_loop().time() - start_time
@@ -248,7 +249,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                         """
         
         response = self._client.models.generate_content(
-            model = "gemini-2.5-flash-lite",
+            model = "gemini-2.0-flash-exp",
             config = genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
