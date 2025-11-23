@@ -8,4 +8,4 @@ endpoint = "http://127.0.0.1:9019"
 cmd = "python scenarios/GAIA/assistant.py --host 127.0.0.1 --port 9019"
 
 [config]
-evaluation_level = "l1"
+evaluation_level = "all"
