@@ -6,6 +6,9 @@ import re
 import pypdf
 import pandas as pd
 import PIL.Image
+import yfinance as yf
+import subprocess
+import sys
 
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
@@ -160,7 +163,7 @@ def inspect_image(filename: str, question: str) -> str:
             return f"Error: The file exists but is not a valid image. ({str(e)})"
 
 
-        vision_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        vision_model = genai.GenerativeModel('gemini-2.0-flash')
 
         response = vision_model.generate_content([question, img])
         
@@ -172,3 +175,103 @@ def inspect_image(filename: str, question: str) -> str:
         
     except Exception as e:
         return f"Error inspecting image: {str(e)}"
+    
+def get_stock_prices(ticker: str) -> str:
+    """
+    Gets the recent stock market data for a specific ticker symbol (e.g., 'AAPL', 'TSLA', 'NVDA').
+    Returns the last 1 month of daily data including Open, High, Low, Close, and Volume.
+    """
+    print(f"Tool: Getting stock prices for {ticker}...")
+    try:
+        stock = yf.Ticker(ticker)
+        
+
+        hist = stock.history(period="1mo")
+        
+        if hist.empty:
+            return f"Error: No data found for symbol '{ticker}'. Check if the ticker is correct."
+            
+  
+        recent_data = hist.tail(10)
+        return f"Stock Data for {ticker} (Last 10 trading days):\n{recent_data.to_markdown()}"
+        
+    except Exception as e:
+        return f"Error fetching stock data: {str(e)}"
+    
+def execute_python(code: str) -> str:
+    """
+    Executes Python code in a separate process.
+    The code runs in the current environment (so it can use installed libraries like pandas, yfinance).
+    Standard output (stdout) and error (stderr) are captured and returned.
+    
+    Args:
+        code: The Python code string to execute.
+    """
+    print(f"🐍 Tool: Executing Python Code...\n{'-'*20}\n{code}\n{'-'*20}")
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60, 
+            cwd=WORKSPACE_DIR 
+        )
+        
+
+        output = result.stdout.strip()
+        error = result.stderr.strip()
+        
+        if result.returncode == 0:
+            if not output:
+                return "Code executed successfully, but printed nothing. (Did you forget to `print(...)`?)"
+            return f"Execution Output:\n{output}"
+        else:
+
+            return f"Execution Error:\n{error}"
+            
+    except subprocess.TimeoutExpired:
+        return "Error: Code execution timed out (limit: 60s)."
+    except Exception as e:
+        return f"System Error executing code: {str(e)}"
+    
+def get_wikipedia_history(page_title: str) -> str:
+    """
+    Gets the revision history of a Wikipedia page using the Wikimedia API.
+    Returns the first 50 revisions (creation history) and the last 20 revisions (recent history).
+    Useful for finding when a page was created, who edited it, or specific edits on dates.
+    """
+    print(f"Tool: Fetching history for '{page_title}'...")
+    try:
+        url = "https://en.wikipedia.org/w/api.php"
+        
+        params_old = {
+            "action": "query",
+            "prop": "revisions",
+            "titles": page_title,
+            "rvlimit": "50",
+            "rvprop": "timestamp|user|comment",
+            "rvdir": "newer", 
+            "format": "json"
+        }
+        
+        resp = requests.get(url, params=params_old, headers={"User-Agent": "AgentiX-Bot/1.0"})
+        data = resp.json()
+        
+        pages = data.get("query", {}).get("pages", {})
+        page_id = list(pages.keys())[0]
+        
+        if page_id == "-1":
+            return f"Error: Wikipedia page '{page_title}' not found."
+            
+        revisions = pages[page_id].get("revisions", [])
+        
+        result = f"--- Edit History for '{page_title}' ---\n"
+        result += "=== First 50 Edits (Oldest) ===\n"
+        for rev in revisions:
+            result += f"Date: {rev['timestamp']} | User: {rev.get('user', 'Hidden')} | Comment: {rev.get('comment', '')}\n"
+            
+        return result[:8000] 
+        
+    except Exception as e:
+        return f"Error fetching Wikipedia history: {str(e)}"
