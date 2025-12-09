@@ -12,15 +12,26 @@ dependencies = [
     "a2a-sdk>=0.3.5",
     "google-adk>=1.14.1",
     "google-genai>=1.36.0",
+<<<<<<< HEAD
     "litellm>=1.0.0",
     "loguru>=0.7.0",
     "fastparquet>=2024.11.0",
+=======
+    "google-generativeai>=0.8.5",
+>>>>>>> c1c38e713230999e8bf5dd6973b665748e30c061
     "huggingface-hub>=1.1.4",
+    "openpyxl>=3.1.5",
     "pandas>=2.3.3",
+    "pillow>=12.0.0",
     "pyarrow>=22.0.0",
     "pydantic>=2.11.9",
+    "pypdf>=6.3.0",
+    "pytesseract>=0.3.13",
     "python-dotenv>=1.1.1",
+    "requests>=2.32.5",
     "uvicorn>=0.35.0",
+    "wikipedia>=1.4.0",
+    "yfinance>=0.2.66",
 ]
 
 [project.scripts]

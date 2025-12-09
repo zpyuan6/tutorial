@@ -6,6 +6,11 @@ import logging
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Literal
+import os
+import requests
+CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
+os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
 load_dotenv()
 
@@ -40,7 +45,8 @@ class GAIAAssistantEvaluator(GreenAgent):
     def __init__(self):
         self._required_roles = ["assistant"]
         self._required_config_keys = ["evaluation_level"]
-        self._client = genai.Client()  # Initialize your AI client here
+        api_key = os.getenv("GEMINI_API_KEY")
+        self._client = genai.Client(api_key=api_key)  # Initialize your AI client here
         self._tool_provider = ToolProvider()
 
     def validate_request(self, request: EvalRequest) -> tuple[bool, str]:
@@ -55,6 +61,48 @@ class GAIAAssistantEvaluator(GreenAgent):
             return False, f"Incorrect evaluation level setting, plese select one of following level, 'all', 'l1', or 'l2'."
 
         return True, "ok"
+    
+
+
+    def download_file(self, filename, split="validation"):
+        """Downloading the file from huggingface"""
+        if not filename:
+            return None
+            
+        local_filename = os.path.basename(filename)
+        local_path = os.path.join(WORKSPACE_DIR, local_filename)
+        print('local_filename',local_filename)
+
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_filename 
+
+        base_url = "https://hf-mirror.com/datasets/gaia-benchmark/GAIA/resolve/main/"
+        
+        if filename.startswith("2023/"):
+            url = base_url + filename
+        else:
+            url = base_url + f"2023/{split}/{filename}"
+        
+        logger.info(f"downloading {filename} ...")
+        
+        headers = {}
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+        if hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
+
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                with open(local_path, "wb") as f:
+                    f.write(resp.content)
+                logger.info(f"download successfully {local_path}")
+                return local_filename 
+            else:
+                logger.error(f" download failed Status {resp.status_code}: {url}")
+                return None
+        except Exception as e:
+            logger.error(f" {e}")
+            return None
 
     async def run_eval(self, req: EvalRequest, updater: TaskUpdater) -> None:
         # Implementation of the evaluation logic goes here
@@ -91,18 +139,23 @@ class GAIAAssistantEvaluator(GreenAgent):
                 user_query = item['Question']
                 query_level = item['Level']
                 ground_truth = item['Final answer']
-                attached_file = item['file_path']
                 
                 start_time = asyncio.get_event_loop().time()
+                attached_file = item['file_path']
+                available_file = None
+                print('attached_file:', attached_file)
+
+                if attached_file:
+                    available_file = self.download_file(attached_file, split="validation")
                 response = await self.assistant_response(
                     req.participants,
                     user_query,
-                    attached_file,
+                    available_file,
                     updater,
                 )
                 time_consumed = asyncio.get_event_loop().time() - start_time
                 sum_time_consumed += time_consumed
-
+                
                 await updater.update_status(
                     TaskState.working, 
                     new_agent_text_message(f"Assistant response: {response}")
@@ -166,7 +219,16 @@ class GAIAAssistantEvaluator(GreenAgent):
             return response
 
         # Opening turns
-        r = await turn("assistant", f"User query: {query}. Response user query.")
+        # r = await turn("assistant", f"User query: {query}. Response user query.")
+        prompt = f"User query: {query}."
+        
+        if attached_file:
+            prompt += f"\n\n[System Notice] A file has been downloaded to your local workspace.\nFilename: {attached_file}\nPath: workspace/{attached_file}\nPlease use your `read_file` tool to inspect 'workspace/{attached_file}' immediately."
+        else:
+            prompt += " Response user query."
+
+        # Opening turns
+        r = await turn("assistant", prompt)
 
         return  responses
     
@@ -187,7 +249,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                         """
         
         response = self._client.models.generate_content(
-            model = "gemini-2.5-flash",
+            model = "gemini-2.0-flash",
             config = genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
@@ -202,7 +264,7 @@ class GAIAAssistantEvaluator(GreenAgent):
 async def main():
     parser = argparse.ArgumentParser(description="Run the A2A debate judge.")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind the server")
-    parser.add_argument("--port", type=int, default=9019, help="Port to bind the server")
+    parser.add_argument("--port", type=int, default=9009, help="Port to bind the server")
     parser.add_argument("--card-url", type=str, help="External URL to provide in the agent card")
     parser.add_argument("--cloudflare-quick-tunnel", action="store_true", help="Use a Cloudflare quick tunnel. Requires cloudflared. This will override --card-url")
     args = parser.parse_args()
