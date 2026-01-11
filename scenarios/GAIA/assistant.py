@@ -2,6 +2,7 @@ import argparse
 import uvicorn
 from dotenv import load_dotenv
 import logging
+import os
 
 load_dotenv()
 
@@ -22,9 +23,12 @@ def main():
     args = parser.parse_args()
     my_tools = [write_file, visit_webpage, read_pdf,read_text_file,read_excel,inspect_image, get_stock_prices,execute_python, get_wikipedia_history]
 
+    assistant_model = os.getenv("ASSISTANT_MODEL", "gemini-2.0-flash")
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Starting GAIA assistant with model=%s", assistant_model)
     root_agent = Agent(
         name="assistant",
-        model="gemini-2.0-flash",
+        model=assistant_model,
         description="Response user queries.",
         # instruction="You are a professional assistant.",
         instruction=(
@@ -54,8 +58,9 @@ def main():
             "   - Example logic: `import wikipedia; page = wikipedia.page('Michael Myers (Halloween)'); print(page.url)`\n"
             "   - Then use `requests` to query the API: `https://en.wikipedia.org/w/api.php?action=query&prop=revisions...`\n"
             "3. **FILES:** Check file extensions. Use `read_text_file`, `read_excel`, `read_pdf`, or `inspect_image` accordingly.\n"
-            "4. **PYTHON:** Use `execute_python` for math, data analysis, and scraping."
-            "5. **NO GUESTS:** Do not hallucinate content. Read the source."
+            "4. **PYTHON:** Use `execute_python` for math, data analysis, and scraping.\n"
+            "5. **LIMIT OUTPUT:** When using `execute_python`, print only final values or small slices; never print full page content.\n"
+            "6. **NO GUESTS:** Do not hallucinate content. Read the source."
         ),
         tools=my_tools
     )
@@ -73,8 +78,7 @@ def main():
     )
 
     a2a_app = to_a2a(root_agent, agent_card=agent_card)
-    uvicorn.run(a2a_app, host=args.host, port=args.port)
-    logging.basicConfig(level=logging.DEBUG)
+    uvicorn.run(a2a_app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

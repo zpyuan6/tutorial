@@ -13,10 +13,27 @@ import sys
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
+MAX_TOOL_OUTPUT_CHARS = int(os.getenv("MAX_TOOL_OUTPUT_CHARS", "8000"))
+
+_GENAI_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+if _GENAI_API_KEY:
+    genai.configure(api_key=_GENAI_API_KEY)
 
 def _get_safe_path(filename: str) -> str:
     local_filename = os.path.basename(filename)
     return os.path.join(WORKSPACE_DIR, local_filename)
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    head_len = limit // 2
+    tail_len = limit - head_len
+    head = text[:head_len]
+    tail = text[-tail_len:] if tail_len else ""
+    return f"{head}\n...[truncated {len(text) - limit} chars]...\n{tail}"
 
 
 def write_file(filename: str, content: str) -> str:
@@ -163,7 +180,8 @@ def inspect_image(filename: str, question: str) -> str:
             return f"Error: The file exists but is not a valid image. ({str(e)})"
 
 
-        vision_model = genai.GenerativeModel('gemini-2.0-flash')
+        vision_model_name = os.getenv("VISION_MODEL", "gemini-2.0-flash")
+        vision_model = genai.GenerativeModel(vision_model_name)
 
         response = vision_model.generate_content([question, img])
         
@@ -219,8 +237,8 @@ def execute_python(code: str) -> str:
         )
         
 
-        output = result.stdout.strip()
-        error = result.stderr.strip()
+        output = _truncate_text(result.stdout.strip(), MAX_TOOL_OUTPUT_CHARS)
+        error = _truncate_text(result.stderr.strip(), MAX_TOOL_OUTPUT_CHARS)
         
         if result.returncode == 0:
             if not output:

@@ -12,14 +12,14 @@ dependencies = [
     "a2a-sdk>=0.3.5",
     "google-adk>=1.14.1",
     "google-genai>=1.36.0",
-<<<<<<< HEAD
     "litellm>=1.0.0",
     "loguru>=0.7.0",
     "fastparquet>=2024.11.0",
-=======
     "google-generativeai>=0.8.5",
->>>>>>> c1c38e713230999e8bf5dd6973b665748e30c061
+    "datasets>=2.18.0",
+    "editdistance>=0.8.1",
     "huggingface-hub>=1.1.4",
+    "lxml>=5.4.0",
     "openpyxl>=3.1.5",
     "pandas>=2.3.3",
     "pillow>=12.0.0",

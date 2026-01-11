@@ -1,16 +1,26 @@
-import argparse 
+import argparse
 import contextlib
 import uvicorn
 import asyncio
 import logging
-from dotenv import load_dotenv
-from pydantic import BaseModel
-from typing import Literal
+import math
 import os
+import random
+import re
+import io
+import json
 import requests
+from dotenv import load_dotenv
+import pandas as pd
+from datasets import load_dataset
+import editdistance
+from PIL import Image
+
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
+RESULTS_DIR = os.path.join(WORKSPACE_DIR, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 load_dotenv()
 
@@ -31,11 +41,15 @@ from a2a.utils import (
 from agentbeats.green_executor import GreenAgent, GreenExecutor
 from agentbeats.models import EvalRequest, EvalResult
 from agentbeats.tool_provider import ToolProvider
-import pandas as pd
-
 
 from assistant_evaluation_common import ResponseEval, AssistantEval, assistant_evaluation_agent_card
 
+GAIA_DATASET = "gaia-benchmark/GAIA"  # verify
+DOCVQA_DATASET = "lmms-lab/DocVQA"  # verify
+DOCVQA_CONFIG = "DocVQA"  # verify
+DOCVQA_SPLIT = "validation"
+SEALQA_DATASET = "vtllms/sealqa"  # verify
+SEALQA_SPLIT = "test"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("debate_judge")
@@ -45,9 +59,10 @@ class GAIAAssistantEvaluator(GreenAgent):
     def __init__(self):
         self._required_roles = ["assistant"]
         self._required_config_keys = ["evaluation_level"]
-        api_key = os.getenv("GEMINI_API_KEY")
-        self._client = genai.Client(api_key=api_key)  # Initialize your AI client here
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self._client = genai.Client(api_key=api_key)
         self._tool_provider = ToolProvider()
+        self._eval_model = os.getenv("EVALUATOR_MODEL", "gemini-2.0-flash")
 
     def validate_request(self, request: EvalRequest) -> tuple[bool, str]:
         missing_roles = set(self._required_roles) - set(request.participants.keys())
@@ -56,35 +71,33 @@ class GAIAAssistantEvaluator(GreenAgent):
         missing_config_keys = set(self._required_config_keys) - set(request.config.keys())
         if missing_config_keys:
             return False, f"Missing config keys: {missing_config_keys}"
-        
-        if not request.config["evaluation_level"] in ["all","l1", "l2"]:
-            return False, f"Incorrect evaluation level setting, plese select one of following level, 'all', 'l1', or 'l2'."
+
+        if request.config["evaluation_level"] not in ["all", "l1", "l2", "l3"]:
+            return False, "Incorrect evaluation level setting, please select one of 'all', 'l1', 'l2', or 'l3'."
 
         return True, "ok"
-    
-
 
     def download_file(self, filename, split="validation"):
         """Downloading the file from huggingface"""
         if not filename:
             return None
-            
+
         local_filename = os.path.basename(filename)
         local_path = os.path.join(WORKSPACE_DIR, local_filename)
-        print('local_filename',local_filename)
+        print("local_filename", local_filename)
 
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_filename 
+            return local_filename
 
         base_url = "https://hf-mirror.com/datasets/gaia-benchmark/GAIA/resolve/main/"
-        
+
         if filename.startswith("2023/"):
             url = base_url + filename
         else:
             url = base_url + f"2023/{split}/{filename}"
-        
+
         logger.info(f"downloading {filename} ...")
-        
+
         headers = {}
         hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
         if hf_token:
@@ -96,7 +109,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                 with open(local_path, "wb") as f:
                     f.write(resp.content)
                 logger.info(f"download successfully {local_path}")
-                return local_filename 
+                return local_filename
             else:
                 logger.error(f" download failed Status {resp.status_code}: {url}")
                 return None
@@ -104,103 +117,497 @@ class GAIAAssistantEvaluator(GreenAgent):
             logger.error(f" {e}")
             return None
 
+    def _normalize_text(self, text: str) -> str:
+        text = (text or "").lower().strip()
+        text = re.sub(r"[^\w\s]", "", text)
+        text = re.sub(r"\s+", " ", text)
+        return text
+
+    def _anls_score(self, pred: str, golds: list[str]) -> float:
+        if not golds:
+            return 0.0
+        pred_norm = self._normalize_text(pred)
+        best = 0.0
+        for gold in golds:
+            gold_norm = self._normalize_text(gold)
+            denom = max(len(pred_norm), len(gold_norm), 1)
+            dist = editdistance.eval(pred_norm, gold_norm)
+            score = 1.0 - (dist / denom)
+            if score < 0.5:
+                score = 0.0
+            best = max(best, score)
+        return best
+
+    def _is_safe_refusal(self, answer: str) -> bool:
+        if not answer:
+            return False
+        text = answer.lower()
+        refusal_markers = [
+            "i don't know",
+            "i do not know",
+            "cannot",
+            "can't",
+            "unable",
+            "not sure",
+            "unsure",
+            "no information",
+            "no info",
+            "unknown",
+        ]
+        return any(marker in text for marker in refusal_markers)
+
+    def _save_docvqa_image(self, image_obj, filename: str) -> str | None:
+        if image_obj is None:
+            return None
+        try:
+            if hasattr(image_obj, "convert"):
+                img = image_obj
+            elif isinstance(image_obj, dict) and "bytes" in image_obj:
+                img = Image.open(io.BytesIO(image_obj["bytes"]))
+            elif isinstance(image_obj, (bytes, bytearray)):
+                img = Image.open(io.BytesIO(image_obj))
+            else:
+                return None
+
+            img = img.convert("RGB")
+            local_path = os.path.join(WORKSPACE_DIR, filename)
+            img.save(local_path, format="JPEG", quality=95)
+            return filename
+        except Exception as e:
+            logger.error(f"DocVQA image save failed for {filename}: {e}")
+            return None
+
+    def _sample_indices(self, total: int, num_samples: int, seed: int) -> list[int]:
+        if total <= 0:
+            return []
+        num_samples = max(0, min(num_samples, total))
+        rng = random.Random(seed)
+        return rng.sample(range(total), num_samples)
+
+    def _parse_bool(self, value: object, default: bool = True) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("1", "true", "yes", "y", "on"):
+                return True
+            if normalized in ("0", "false", "no", "n", "off"):
+                return False
+        return default
+
     async def run_eval(self, req: EvalRequest, updater: TaskUpdater) -> None:
-        # Implementation of the evaluation logic goes here
         logger.info(f"Starting GAIA assistant evaluation: {req}")
 
         try:
+            run_gaia = self._parse_bool(req.config.get("run_gaia"), True)
+            run_docvqa = self._parse_bool(req.config.get("run_docvqa"), True)
+            run_sealqa = self._parse_bool(req.config.get("run_sealqa"), True)
 
-            if req.config["evaluation_level"] == "all":
-                splits = {
-                    'test': '2023/test/metadata.parquet', 
-                    'validation': '2023/validation/metadata.parquet'
-                    }
-            elif req.config["evaluation_level"] == "l1":
-                splits = {
-                    'test': '2023/test/metadata.level1.parquet', 
-                    'validation': '2023/validation/metadata.level1.parquet'
-                    } 
-            elif req.config["evaluation_level"] == "l2":
-                splits = {
-                    'test': '2023/test/metadata.level2.parquet', 
-                    'validation': '2023/validation/metadata.level2.parquet'
-                    }
-            
-            df = pd.read_parquet(
-                "hf://datasets/gaia-benchmark/GAIA/" + splits["test"])
-            
-            df_iterrows = df.iterrows()
-            items_number = 0
-            correct_number = 0
-            sum_time_consumed = 0
-            response_records = []
-            
-            for index, item in df_iterrows:
-                user_query = item['Question']
-                query_level = item['Level']
-                ground_truth = item['Final answer']
-                
-                start_time = asyncio.get_event_loop().time()
-                attached_file = item['file_path']
-                available_file = None
-                print('attached_file:', attached_file)
+            if run_gaia:
+                gaia_result = await self._run_gaia_eval(req, updater)
+            else:
+                logger.info("Skipping GAIA evaluation (run_gaia=false)")
+                gaia_result = {
+                    "skipped": True,
+                    "evaluation_level": req.config.get("evaluation_level"),
+                    "split": req.config.get("gaia_split"),
+                    "num_items": 0,
+                    "score": 0.0,
+                    "average_time_to_answer_sec": 0.0,
+                    "responses_records": [],
+                    "errors": [],
+                }
 
-                if attached_file:
-                    available_file = self.download_file(attached_file, split="validation")
+            if run_docvqa:
+                docvqa_result = await self._run_docvqa_eval(req, updater)
+            else:
+                logger.info("Skipping DocVQA evaluation (run_docvqa=false)")
+                docvqa_result = {
+                    "skipped": True,
+                    "dataset": DOCVQA_DATASET,
+                    "split": DOCVQA_SPLIT,
+                    "num_samples": 0,
+                    "actual_num_samples": 0,
+                    "seed": req.config.get("docvqa_seed"),
+                    "anls": 0.0,
+                    "records": [],
+                }
+
+            if run_sealqa:
+                sealqa_result = await self._run_sealqa_eval(req, updater)
+            else:
+                logger.info("Skipping SEALQA evaluation (run_sealqa=false)")
+                sealqa_result = {
+                    "skipped": True,
+                    "dataset": SEALQA_DATASET,
+                    "subset": req.config.get("sealqa_subset"),
+                    "split": SEALQA_SPLIT,
+                    "num_samples": 0,
+                    "strict_accuracy": 0.0,
+                    "safe_refusal_rate": 0.0,
+                    "records": [],
+                }
+
+            score_sum = 0.0
+            weight_sum = 0.0
+            if run_gaia:
+                score_sum += 0.4 * gaia_result.get("score", 0.0)
+                weight_sum += 0.4
+            if run_sealqa:
+                score_sum += 0.3 * sealqa_result.get("strict_accuracy", 0.0)
+                weight_sum += 0.3
+            if run_docvqa:
+                score_sum += 0.3 * docvqa_result.get("anls", 0.0)
+                weight_sum += 0.3
+
+            capability_score = (score_sum / weight_sum) if weight_sum else 0.0
+
+            total_token_cost = float(req.config.get("total_token_cost", 0))
+            denom = math.log10(total_token_cost + 1) if total_token_cost > 0 else 1.0
+            green_index = capability_score / denom
+
+            result = {
+                "gaia": gaia_result,
+                "docvqa": docvqa_result,
+                "sealqa": sealqa_result,
+                "capability_score": capability_score,
+                "green_index": green_index,
+                "total_token_cost": total_token_cost,
+            }
+
+            await updater.add_artifact(
+                parts=[
+                    Part(root=TextPart(text=json.dumps(result, ensure_ascii=True)))
+                ],
+                name="Result",
+            )
+            try:
+                output_path = os.path.join(RESULTS_DIR, "result.json")
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(result, f, ensure_ascii=True, indent=2)
+                logger.info("Wrote result file to %s", output_path)
+            except Exception as e:
+                logger.error("Failed to write result file: %s", e)
+
+            try:
+                errors_output = {
+                    "gaia": gaia_result.get("errors", []),
+                    "docvqa": [r for r in docvqa_result.get("records", []) if "error" in r],
+                    "sealqa": [r for r in sealqa_result.get("records", []) if "error" in r],
+                }
+                errors_path = os.path.join(RESULTS_DIR, "errors.json")
+                with open(errors_path, "w", encoding="utf-8") as f:
+                    json.dump(errors_output, f, ensure_ascii=True, indent=2)
+                logger.info("Wrote error file to %s", errors_path)
+            except Exception as e:
+                logger.error("Failed to write error file: %s", e)
+
+        finally:
+            self._tool_provider.reset()
+
+    async def _run_gaia_eval(self, req: EvalRequest, updater: TaskUpdater) -> dict:
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message("Starting GAIA evaluation"),
+        )
+
+        if req.config["evaluation_level"] == "all":
+            splits = {
+                "test": "2023/test/metadata.parquet",
+                "validation": "2023/validation/metadata.parquet",
+            }
+        elif req.config["evaluation_level"] == "l1":
+            splits = {
+                "test": "2023/test/metadata.level1.parquet",
+                "validation": "2023/validation/metadata.level1.parquet",
+            }
+        elif req.config["evaluation_level"] == "l2":
+            splits = {
+                "test": "2023/test/metadata.level2.parquet",
+                "validation": "2023/validation/metadata.level2.parquet",
+            }
+        else:
+            splits = {
+                "test": "2023/test/metadata.level3.parquet",
+                "validation": "2023/validation/metadata.level3.parquet",
+            }
+
+        gaia_split = str(req.config.get("gaia_split", "validation"))
+        if gaia_split not in splits:
+            gaia_split = "validation"
+
+        df = pd.read_parquet(
+            f"hf://datasets/{GAIA_DATASET}/" + splits[gaia_split]
+        )
+
+        items_number = 0
+        correct_number = 0
+        sum_time_consumed = 0.0
+        response_records = []
+        errors = []
+
+        for index, item in df.iterrows():
+            user_query = item.get("Question", "")
+            query_level = item.get("Level", "")
+            ground_truth = item.get("Final answer", "")
+
+            start_time = asyncio.get_event_loop().time()
+            attached_file = item.get("file_path")
+            available_file = None
+            print("attached_file:", attached_file)
+
+            if attached_file:
+                available_file = self.download_file(attached_file, split=gaia_split)
+            try:
                 response = await self.assistant_response(
                     req.participants,
                     user_query,
                     available_file,
                     updater,
                 )
-                time_consumed = asyncio.get_event_loop().time() - start_time
-                sum_time_consumed += time_consumed
-                
-                await updater.update_status(
-                    TaskState.working, 
-                    new_agent_text_message(f"Assistant response: {response}")
-                    )
-                
-                logger.info(f"Assistant response obtained. Evaluating response.")
-                isCorrect: bool = await self.evaluate_response(
-                    user_query,
-                    response['assistant'][0],
-                    ground_truth
-                )
-
-
-                if isCorrect:
-                    correct_number+=1
+            except Exception as e:
                 items_number += 1
-
-                response_eval = ResponseEval(
-                    final_answer = response['assistant'][0],
-                    ground_truth = ground_truth,
-                    is_correct = isCorrect,
-                    query_level = query_level,
-                    time_to_answer_sec = time_consumed,
+                errors.append({"index": int(index), "error": str(e), "question": user_query})
+                response_records.append(
+                    ResponseEval(
+                        final_answer="",
+                        ground_truth=str(ground_truth),
+                        is_correct=False,
+                        query_level=str(query_level),
+                        time_to_answer_sec=0.0,
+                    )
                 )
-                response_records.append(response_eval)
-                logger.info(f"Response Evaluation:\n{response_eval.model_dump_json()}")
-            
-            assistant_eval = AssistantEval(
-                score = correct_number/items_number,
-                average_time_to_answer_sec= sum_time_consumed/items_number,
-                responses_records=response_records
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(f"GAIA item failed (index={index}): {e}"),
+                )
+                continue
+            time_consumed = asyncio.get_event_loop().time() - start_time
+            sum_time_consumed += time_consumed
+
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"Assistant response: {response}"),
             )
 
-            logger.info(f"Assistant Evaluation: \n Query Number: {items_number} \n Score: {correct_number/items_number} \n Average Time: {sum_time_consumed/items_number}  ")
+            logger.info("Assistant response obtained. Evaluating response.")
+            is_correct = False
+            if ground_truth is not None and str(ground_truth).strip() != "":
+                is_correct = await self.evaluate_response(
+                    user_query,
+                    response["assistant"][0],
+                    ground_truth,
+                )
 
-            await updater.add_artifact(
-                parts=[
-                    Part(root=TextPart(text=assistant_eval.model_dump_json()))
-                ],
-                name ="Result",
+            if is_correct:
+                correct_number += 1
+            items_number += 1
+
+            response_eval = ResponseEval(
+                final_answer=response["assistant"][0],
+                ground_truth=str(ground_truth),
+                is_correct=is_correct,
+                query_level=str(query_level),
+                time_to_answer_sec=time_consumed,
             )
+            response_records.append(response_eval)
+            logger.info(f"Response Evaluation:\n{response_eval.model_dump_json()}")
 
-        finally:
-            self._tool_provider.reset()
+        score = (correct_number / items_number) if items_number else 0.0
+        avg_time = (sum_time_consumed / items_number) if items_number else 0.0
+        assistant_eval = AssistantEval(
+            score=score,
+            average_time_to_answer_sec=avg_time,
+            responses_records=response_records,
+        )
 
+        logger.info(
+            "Assistant Evaluation: \n"
+            f"Query Number: {items_number} \n"
+            f"Score: {score} \n"
+            f"Average Time: {avg_time}"
+        )
+
+        return {
+            "evaluation_level": req.config.get("evaluation_level"),
+            "split": gaia_split,
+            "num_items": items_number,
+            "score": score,
+            "average_time_to_answer_sec": avg_time,
+            "responses_records": [r.model_dump() for r in response_records],
+            "errors": errors,
+        }
+
+    async def _run_docvqa_eval(self, req: EvalRequest, updater: TaskUpdater) -> dict:
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message("Starting DocVQA evaluation"),
+        )
+
+        num_samples = int(req.config.get("docvqa_num_samples", 200))
+        seed = int(req.config.get("docvqa_seed", 0))
+        dataset = load_dataset(DOCVQA_DATASET, DOCVQA_CONFIG, split=DOCVQA_SPLIT)
+        indices = self._sample_indices(len(dataset), num_samples, seed)
+
+        scores = []
+        records = []
+
+        for idx in indices:
+            sample = dataset[idx]
+            question = sample.get("question") or sample.get("question_text")
+            if not question:
+                records.append({
+                    "id": idx,
+                    "error": "missing_question",
+                })
+                continue
+
+            answers = sample.get("answers") or sample.get("answer")
+            if answers is None:
+                answers = []
+            if isinstance(answers, str):
+                answers = [answers]
+            else:
+                answers = list(answers)
+
+            image_obj = sample.get("image") or sample.get("document") or sample.get("doc")
+            filename = f"docvqa_{idx}.jpg"
+            saved = self._save_docvqa_image(image_obj, filename)
+            if not saved:
+                records.append({
+                    "id": idx,
+                    "question": question,
+                    "gold": answers,
+                    "error": "image_save_failed",
+                })
+                continue
+
+            try:
+                response = await self.assistant_response(
+                    req.participants,
+                    question,
+                    filename,
+                    updater,
+                )
+                pred = response["assistant"][0] if response["assistant"] else ""
+            except Exception as e:
+                records.append({
+                    "id": sample.get("question_id") or sample.get("questionId") or idx,
+                    "question": question,
+                    "gold": answers,
+                    "error": str(e),
+                    "image_filename": filename,
+                })
+                continue
+            score = self._anls_score(pred, answers)
+            scores.append(score)
+
+            records.append({
+                "id": sample.get("question_id") or sample.get("questionId") or idx,
+                "question": question,
+                "pred": pred,
+                "gold": answers,
+                "anls": score,
+                "image_filename": filename,
+            })
+
+        anls = (sum(scores) / len(scores)) if scores else 0.0
+
+        return {
+            "dataset": DOCVQA_DATASET,
+            "split": DOCVQA_SPLIT,
+            "num_samples": num_samples,
+            "actual_num_samples": len(scores),
+            "seed": seed,
+            "anls": anls,
+            "records": records,
+        }
+
+    async def _run_sealqa_eval(self, req: EvalRequest, updater: TaskUpdater) -> dict:
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message("Starting SEALQA evaluation"),
+        )
+
+        subset = str(req.config.get("sealqa_subset", "seal_0"))
+        dataset = load_dataset(SEALQA_DATASET, name=subset, split=SEALQA_SPLIT)
+
+        records = []
+        correct_count = 0
+        refusal_count = 0
+        total = 0
+
+        for idx, sample in enumerate(dataset):
+            question = sample.get("question") or sample.get("query") or sample.get("prompt")
+            answers = sample.get("answer") or sample.get("answers")
+            if answers is None:
+                answers = []
+            if isinstance(answers, str):
+                answers = [answers]
+            else:
+                answers = list(answers)
+
+            if not question:
+                records.append({
+                    "id": idx,
+                    "error": "missing_question",
+                })
+                continue
+
+            try:
+                response = await self.assistant_response(
+                    req.participants,
+                    question,
+                    None,
+                    updater,
+                )
+                pred = response["assistant"][0] if response["assistant"] else ""
+            except Exception as e:
+                total += 1
+                records.append({
+                    "id": sample.get("id") or idx,
+                    "question": question,
+                    "gold": answers,
+                    "error": str(e),
+                })
+                continue
+
+            pred_norm = self._normalize_text(pred)
+            gold_norms = [self._normalize_text(a) for a in answers]
+            is_correct = any(pred_norm == g for g in gold_norms if g)
+            is_safe_refusal = self._is_safe_refusal(pred)
+
+            if is_correct:
+                correct_count += 1
+            if is_safe_refusal:
+                refusal_count += 1
+            total += 1
+
+            records.append({
+                "id": sample.get("id") or idx,
+                "question": question,
+                "pred": pred,
+                "gold": answers,
+                "is_correct": is_correct,
+                "is_safe_refusal": is_safe_refusal,
+            })
+
+        strict_accuracy = (correct_count / total) if total else 0.0
+        refusal_rate = (refusal_count / total) if total else 0.0
+
+        return {
+            "dataset": SEALQA_DATASET,
+            "subset": subset,
+            "split": SEALQA_SPLIT,
+            "num_samples": total,
+            "strict_accuracy": strict_accuracy,
+            "safe_refusal_rate": refusal_rate,
+            "records": records,
+        }
 
     async def assistant_response(
         self,
@@ -212,50 +619,56 @@ class GAIAAssistantEvaluator(GreenAgent):
         responses: dict[str, list[str]] = {"assistant": []}
 
         async def turn(role: str, prompt: str) -> str:
-            response = await self._tool_provider.talk_to_agent(prompt, str(participants[role]), new_conversation=True)
+            response = await self._tool_provider.talk_to_agent(
+                prompt, str(participants[role]), new_conversation=True
+            )
             logger.info(f"{role}: {response}")
             responses[role].append(response)
-            await updater.update_status(TaskState.working, new_agent_text_message(f"{role}: {response}"))
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"{role}: {response}"),
+            )
             return response
 
-        # Opening turns
-        # r = await turn("assistant", f"User query: {query}. Response user query.")
         prompt = f"User query: {query}."
-        
+
         if attached_file:
-            prompt += f"\n\n[System Notice] A file has been downloaded to your local workspace.\nFilename: {attached_file}\nPath: workspace/{attached_file}\nPlease use your `read_file` tool to inspect 'workspace/{attached_file}' immediately."
+            prompt += (
+                "\n\n[System Notice] A file has been downloaded to your local workspace."
+                f"\nFilename: {attached_file}"
+                f"\nPath: workspace/{attached_file}"
+                "\nUse the appropriate tool based on file type: read_text_file, read_excel, read_pdf, or inspect_image."
+            )
         else:
             prompt += " Response user query."
 
-        # Opening turns
-        r = await turn("assistant", prompt)
+        await turn("assistant", prompt)
 
-        return  responses
-    
+        return responses
+
     async def evaluate_response(self, user_query: str, response: str, ground_truth: str) -> bool:
-        # prompt adapted from GAIA evaluation guidelines:
+        system_prompt = (
+            "You are an expert evaluator for AI assistants. "
+            "Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. "
+            "Provide a bool value to indicate correctness for generated responses."
+        )
 
-        system_prompt = """
-                        You are an expert evaluator for AI assistants. 
-                        Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. 
-                        Provide a bool value to indicate correctness for generated responses.
-                        """
-        
-        user_prompt = f"""
-                        Evaluate the response from the AI assistant to the user query: '{user_query}'
-                        Response: '{response}'
-                        Ground Truth: '{ground_truth}'
-                        Provide a bool value to indicate correctness for generated responses.
-                        """
-        
+        user_prompt = (
+            "Evaluate the response from the AI assistant to the user query: "
+            f"'{user_query}'\n"
+            f"Response: '{response}'\n"
+            f"Ground Truth: '{ground_truth}'\n"
+            "Provide a bool value to indicate correctness for generated responses."
+        )
+
         response = self._client.models.generate_content(
-            model = "gemini-2.0-flash",
-            config = genai.types.GenerateContentConfig(
+            model=self._eval_model,
+            config=genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
                 response_schema=bool,
             ),
-            contents = user_prompt
+            contents=user_prompt,
         )
 
         return response.parsed
@@ -266,7 +679,11 @@ async def main():
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind the server")
     parser.add_argument("--port", type=int, default=9009, help="Port to bind the server")
     parser.add_argument("--card-url", type=str, help="External URL to provide in the agent card")
-    parser.add_argument("--cloudflare-quick-tunnel", action="store_true", help="Use a Cloudflare quick tunnel. Requires cloudflared. This will override --card-url")
+    parser.add_argument(
+        "--cloudflare-quick-tunnel",
+        action="store_true",
+        help="Use a Cloudflare quick tunnel. Requires cloudflared. This will override --card-url",
+    )
     args = parser.parse_args()
 
     if args.cloudflare_quick_tunnel:
@@ -294,7 +711,6 @@ async def main():
         uvicorn_server = uvicorn.Server(uvicorn_config)
         await uvicorn_server.serve()
 
-if __name__ == '__main__':
 
-    # Login using e.g. `huggingface-cli login` to access this dataset
+if __name__ == "__main__":
     asyncio.run(main())

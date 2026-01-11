@@ -168,7 +168,7 @@ class DebateJudge(GreenAgent):
         """
 
         response = self._client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             config=genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     response_mime_type="application/json",

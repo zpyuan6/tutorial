@@ -8,4 +8,13 @@ endpoint = "http://127.0.0.1:9019"
 cmd = "python scenarios/GAIA/assistant.py --host 127.0.0.1 --port 9019"
 
 [config]
+run_gaia = true
 evaluation_level = "all"
+gaia_split = "validation"
+
+run_docvqa = true
+docvqa_num_samples = 100
+docvqa_seed = 0
+
+run_sealqa = true
+sealqa_subset = "seal_0"

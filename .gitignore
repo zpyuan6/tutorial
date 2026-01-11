@@ -4,3 +4,7 @@
 .venv/
 __pycache__/
 *.pyc
+run.log
+scenarios/GAIA/workspace/
+scenarios/GAIA/workspace/**
+.vscode/
