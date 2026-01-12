@@ -1,3 +1,20 @@
+# Extended GAIA Benchmark
+
+## Abstract
+
+Our green agent evaluates general-purpose AI assistants on GAIA-style real-world questions with unambiguous answers, where success requires combining multi-step reasoning with multimodal understanding, web browsing, and tool use (e.g., retrieving and verifying information, chaining intermediate computations, and synthesising evidence into a final exact answer). Tasks span three difficulty levels with increasing autonomy and tooling demands.
+- Level 1: minimal tool use and typically <5 steps
+- Level 2: ~5–10 steps, often requiring multiple tools and cross-source synthesis
+- Level 3: long-horizon, open-ended tool use and robust multi-step execution (near “general assistant” capability)
+
+Concretely, the green agent evaluates whether an agent can answer user's questions with
+- Reasoning over real-world queries that are straightforward for humans but challenging for current AI assistants.
+- Web browsing + evidence gathering, where the agent must locate relevant sources and extract the needed facts.
+- Tool-use proficiency, i.e., correctly deciding when and how to use external tools to reach a verifiable answer.
+- Multimodal handling when tasks include non-text inputs (e.g., interpreting visual/file content as part of solving).
+- Increasing autonomy across 3 levels, from relatively direct tasks to longer-horizon, multi-tool problem solving.
+
+
 ## How to start
 1. Clone (or fork) the repo:
 ```
