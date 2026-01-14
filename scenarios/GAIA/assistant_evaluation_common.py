@@ -15,7 +15,7 @@ class ResponseEval(BaseModel):
     time_to_answer_sec: float
 
 class AssistantEval(BaseModel):
-    score: float
+    score: dict[Literal['Level 1', 'Level 2', 'Level 3', 'Total'], float]
     average_time_to_answer_sec: float
     responses_records: list[ResponseEval]
 

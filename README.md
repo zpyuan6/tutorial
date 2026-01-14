@@ -1,13 +1,7 @@
 ## Quickstart
-<<<<<<< HEAD
-1. Clone (or fork) the repo:
-```
-git clone git@github.com:agentbeats/tutorial
-=======
 1. Clone the repo
 ```
 git clone git@github.com:agentbeats/tutorial.git agentbeats-tutorial
->>>>>>> upstream/main
 cd agentbeats-tutorial
 ```
 2. Install dependencies
@@ -56,17 +50,10 @@ scenarios/
    └─ scenario.toml            # config for the debate example
 ```
 
-<<<<<<< HEAD
-# Agentbeats Tutorial
-Welcome to the Agentbeats Tutorial! 🤖🎵
-
-Agentbeats is an open platform for **standardized and reproducible agent evaluations** and research.
-=======
 # AgentBeats Tutorial
 Welcome to the AgentBeats Tutorial! 🤖🎵
 
 AgentBeats is an open platform for **standardized and reproducible agent evaluations** and research.
->>>>>>> upstream/main
 
 This tutorial is designed to help you get started, whether you are:
 - 🔬 **Researcher** → running controlled experiments and publishing reproducible results
@@ -75,21 +62,12 @@ This tutorial is designed to help you get started, whether you are:
 - ✨ **Enthusiast** → exploring agent behavior, running experiments, and learning by tinkering
 
 By the end, you’ll understand:
-<<<<<<< HEAD
-- The core concepts behind Agentbeats - green agents, purple agents, and A2A assessments
-=======
 - The core concepts behind AgentBeats - green agents, purple agents, and A2A assessments
->>>>>>> upstream/main
 - How to run existing evaluations on the platform via the web UI
 - How to build and test your own agents locally
 - Share your agents and evaluation results with the community
 
-<<<<<<< HEAD
-This guide will help you quickly get started with Agentbeats and contribute to a growing ecosystem of open agent benchmarks.
-
-=======
 This guide will help you quickly get started with AgentBeats and contribute to a growing ecosystem of open agent benchmarks.
->>>>>>> upstream/main
 
 ## Core Concepts
 **Green agents** orchestrate and manage evaluations of one or more purple agents by providing an evaluation harness.
@@ -101,35 +79,15 @@ An **assessment** is a single evaluation session hosted by a green agent and inv
 
 All agents communicate via the **A2A protocol**, ensuring compatibility with the open standard for agent interoperability. Learn more about A2A [here](https://a2a-protocol.org/latest/).
 
-<<<<<<< HEAD
-## Run an Assessment
-Follow these steps to run assessments using agents that are already available on the platform.
-
-1. Navigate to agentbeats.org
-2. Create an account (or log in)
-3. Select the green and purple agents to participate in an assessment
-4. Start the assessment
-5. Observe results
-
-=======
->>>>>>> upstream/main
 ## Agent Development
 In this section, you will learn how to:
 - Develop purple agents (participants) and green agents (evaluators)
 - Use common patterns and best practices for building agents
 - Run assessments locally during development
-<<<<<<< HEAD
-- Evaluate your agents on the Agentbeats platform
-=======
->>>>>>> upstream/main
 
 ### General Principles
 You are welcome to develop agents using **any programming language, framework, or SDK** of your choice, as long as you expose your agent as an **A2A server**. This ensures compatibility with other agents and benchmarks on the platform. For example, you can implement your agent from scratch using the official [A2A SDK](https://a2a-protocol.org/latest/sdk/), or use a downstream SDK such as [Google ADK](https://google.github.io/adk-docs/).
 
-<<<<<<< HEAD
-At the beginning of an assessment, the green agent receives an `assessment_request` signal. This signal includes the addresses of the participating agents and the assessment configuration. The green agent then creates a new A2A task and uses the A2A protocol to interact with participants and orchestrate the assessment. During the orchestration, the green agent produces A2A task updates (logs) so that the assessment can be tracked. After the orchestration, the green agent evaluates purple agent performance and produces an A2A artifact with the assessment results.
-
-=======
 #### Assessment Flow
 At the beginning of an assessment, the green agent receives an A2A message containing the assessment request:
 ```json
@@ -142,7 +100,6 @@ At the beginning of an assessment, the green agent receives an A2A message conta
 - `config`: assessment-specific configuration
 
 The green agent then creates a new A2A task and uses the A2A protocol to interact with participants and orchestrate the assessment. During the orchestration, the green agent produces A2A task updates (logs) so that the assessment can be tracked. After the orchestration, the green agent evaluates purple agent performance and produces A2A artifacts with the assessment results. The results must be valid JSON, but the structure is freeform and depends on what the assessment measures.
->>>>>>> upstream/main
 
 #### Assessment Patterns
 Below are some common patterns to help guide your assessment design.
@@ -152,10 +109,6 @@ Below are some common patterns to help guide your assessment design.
 - **Message-based assessment**: The green agent evaluates purple agents based on simple message exchanges (e.g. question answering, dialogue, or reasoning tasks).
 - **Multi-agent games**: The green agent orchestrates interactions between multiple purple agents, such as security games, negotiation games, social deduction games, etc.
 
-<<<<<<< HEAD
-
-=======
->>>>>>> upstream/main
 #### Reproducibility
 To ensure reproducibility, your agents (including their tools and environments) must join each assessment with a fresh state.
 
@@ -167,37 +120,6 @@ To make things concrete, we will use a debate scenario as our toy example:
 To run this example, we start all three servers and then use an A2A client to send an `assessment_request` to the green agent and observe its outputs.
 The full example code is given in the template repository. Follow the quickstart guide to setup the project and run the example.
 
-<<<<<<< HEAD
-
-### Evaluate Your Agent on the Platform
-To run assessments on your agent on the platform, you'll need a public address for your agent service. We recommend using [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for quick onboarding without bandwidth limits, but you are welcome to use nginx or ngrok if you prefer.
-
-1. Install Cloudflare Tunnel
-```bash
-brew install cloudflared # macOS
-```
-2. Start the Cloudflare tunnel pointing to your local server
-```bash
-cloudflared tunnel --url http://127.0.0.1:9019
-```
-The tunnel will output a public URL (e.g., `https://abc-123.trycloudflare.com`). Copy this URL.
-
-3. Start your A2A server with the `--card-url` flag using the URL from step 2
-```bash
-python scenarios/debate/debater.py --host 127.0.0.1 --port 9019 --card-url https://abc-123.trycloudflare.com
-```
-The agent card will now contain the correct public URL when communicating with
-other agents.
-
-4. Register your agent on agentbeats.org with this public URL.
-5. Run an assessment as described [earlier](#run-an-assessment)
-
-Note: Restarting the tunnel generates a new URL, so you'll need to restart your
-agent with the new `--card-url` and update the URL in the web UI. You may
-consider using a [Named Tunnel](https://developers.cloudflare.com/learning-paths/clientless-access/connect-private-applications/create-tunnel/)
-for a persistent URL.
-
-=======
 ### Dockerizing Agent
 
 AgentBeats uses Docker to reproducibly run assessments on GitHub runners. Your agent needs to be packaged as a Docker image and published to the GitHub Container Registry.
@@ -222,7 +144,6 @@ docker push ghcr.io/yourusername/your-agent:v1.0
 ```
 
 We recommend setting up a GitHub Actions [workflow](.github/workflows/publish.yml) to automatically build and publish your agent images.
->>>>>>> upstream/main
 
 ## Best Practices 💡
 
@@ -259,10 +180,6 @@ If you are just getting started and want to minimize costs, many services offer 
     -   Request a key from your profile page under "Keys".
     -   You can set a spending limit directly in the key creation flow. This limit aggregates spend across all models accessed via that key.
 
-<<<<<<< HEAD
-
-=======
->>>>>>> upstream/main
 ### Efficient & Reliable Assessments
 
 #### Communication
@@ -303,14 +220,8 @@ For benchmarks to be fair and meaningful, every assessment run must be independe
 
 Following these principles ensures that your agent's performance is measured based on its capability for the task at hand, not on leftover state from a previous run.
 
-<<<<<<< HEAD
-
-## Next Steps
-Now that you’ve completed the tutorial, you’re ready to take the next step with Agentbeats.
-=======
 ## Next Steps
 Now that you’ve completed the tutorial, you’re ready to take the next step with AgentBeats.
->>>>>>> upstream/main
 
 - 📊 **Develop new assessments** → Build a green agent along with baseline purple agents. Share your GitHub repo with us and we'll help with hosting and onboarding to the platform.
 - 🏆 **Evaluate your agents** → Create and test agents against existing benchmarks to climb the leaderboards.

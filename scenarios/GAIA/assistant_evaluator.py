@@ -15,6 +15,7 @@ import pandas as pd
 from datasets import load_dataset
 import editdistance
 from PIL import Image
+from tools import question_scorer
 
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
@@ -52,7 +53,7 @@ SEALQA_DATASET = "vtllms/sealqa"  # verify
 SEALQA_SPLIT = "test"
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("debate_judge")
+logger = logging.getLogger("GAIA Benchmarking")
 
 
 class GAIAAssistantEvaluator(GreenAgent):
@@ -200,7 +201,7 @@ class GAIAAssistantEvaluator(GreenAgent):
         return default
 
     async def run_eval(self, req: EvalRequest, updater: TaskUpdater) -> None:
-        logger.info(f"Starting GAIA assistant evaluation: {req}")
+        logger.info(f"Starting Extending GAIA assistant evaluation: {req}")
 
         try:
             run_gaia = self._parse_bool(req.config.get("run_gaia"), True)
@@ -216,7 +217,12 @@ class GAIAAssistantEvaluator(GreenAgent):
                     "evaluation_level": req.config.get("evaluation_level"),
                     "split": req.config.get("gaia_split"),
                     "num_items": 0,
-                    "score": 0.0,
+                    "score": {
+                        "Level 1": 0.0,
+                        "Level 2": 0.0,
+                        "Level 3": 0.0,
+                        "Total": 0.0,
+                    },
                     "average_time_to_answer_sec": 0.0,
                     "responses_records": [],
                     "errors": [],
@@ -252,31 +258,24 @@ class GAIAAssistantEvaluator(GreenAgent):
                     "records": [],
                 }
 
-            score_sum = 0.0
-            weight_sum = 0.0
-            if run_gaia:
-                score_sum += 0.4 * gaia_result.get("score", 0.0)
-                weight_sum += 0.4
-            if run_sealqa:
-                score_sum += 0.3 * sealqa_result.get("strict_accuracy", 0.0)
-                weight_sum += 0.3
-            if run_docvqa:
-                score_sum += 0.3 * docvqa_result.get("anls", 0.0)
-                weight_sum += 0.3
+            num_tasks = sum([run_gaia, run_docvqa, run_sealqa])
+            capability_score = (
+                (gaia_result.get("score").get("Total", 0.0) if run_gaia else 0.0) +
+                (sealqa_result.get("strict_accuracy", 0.0) if run_sealqa else 0.0) +
+                (docvqa_result.get("anls", 0.0) if run_docvqa else 0.0)
+            ) / num_tasks if num_tasks > 0 else 0.0
 
-            capability_score = (score_sum / weight_sum) if weight_sum else 0.0
-
-            total_token_cost = float(req.config.get("total_token_cost", 0))
-            denom = math.log10(total_token_cost + 1) if total_token_cost > 0 else 1.0
-            green_index = capability_score / denom
+            # total_token_cost = float(req.config.get("total_token_cost", 0))
+            # denom = math.log10(total_token_cost + 1) if total_token_cost > 0 else 1.0
+            # green_index = capability_score / denom
 
             result = {
                 "gaia": gaia_result,
                 "docvqa": docvqa_result,
                 "sealqa": sealqa_result,
                 "capability_score": capability_score,
-                "green_index": green_index,
-                "total_token_cost": total_token_cost,
+                # "green_index": green_index,
+                # "total_token_cost": total_token_cost,
             }
 
             await updater.add_artifact(
@@ -344,33 +343,44 @@ class GAIAAssistantEvaluator(GreenAgent):
             f"hf://datasets/{GAIA_DATASET}/" + splits[gaia_split]
         )
 
-        items_number = 0
-        correct_number = 0
+        items_number = {'1':0, '2':0, '3':0}
+        correct_number = {'1':0, '2':0, '3':0}
         sum_time_consumed = 0.0
         response_records = []
         errors = []
+
+        total_df_rows = len(df)
 
         for index, item in df.iterrows():
             user_query = item.get("Question", "")
             query_level = item.get("Level", "")
             ground_truth = item.get("Final answer", "")
+            attached_file = item.get("file_path")
+            items_number[query_level] += 1
+
+            logger.info(
+                f"GAIA query index={index+1}/{total_df_rows}, level={query_level}, have_attached_file={bool(attached_file)}, question={user_query}"
+                )
+
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"GAIA query index={index+1}/{total_df_rows}, level={query_level}, have_attached_file={bool(attached_file)}, question={user_query}"),
+            )
+            
+            available_file = self.download_file(attached_file, split=gaia_split) if attached_file else None
 
             start_time = asyncio.get_event_loop().time()
-            attached_file = item.get("file_path")
-            available_file = None
-            print("attached_file:", attached_file)
-
-            if attached_file:
-                available_file = self.download_file(attached_file, split=gaia_split)
             try:
                 response = await self.assistant_response(
                     req.participants,
                     user_query,
                     available_file,
-                    updater,
+                )
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(f"Assistant response: {response}. Ground truth: {ground_truth}."),
                 )
             except Exception as e:
-                items_number += 1
                 errors.append({"index": int(index), "error": str(e), "question": user_query})
                 response_records.append(
                     ResponseEval(
@@ -386,26 +396,19 @@ class GAIAAssistantEvaluator(GreenAgent):
                     new_agent_text_message(f"GAIA item failed (index={index}): {e}"),
                 )
                 continue
+
             time_consumed = asyncio.get_event_loop().time() - start_time
             sum_time_consumed += time_consumed
 
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(f"Assistant response: {response}"),
+            logger.info(f"Assistant response: {response}. Ground truth: {ground_truth}.")
+
+            is_correct = question_scorer(
+                response['assistant'][0],
+                ground_truth,
             )
 
-            logger.info("Assistant response obtained. Evaluating response.")
-            is_correct = False
-            if ground_truth is not None and str(ground_truth).strip() != "":
-                is_correct = await self.evaluate_response(
-                    user_query,
-                    response["assistant"][0],
-                    ground_truth,
-                )
-
             if is_correct:
-                correct_number += 1
-            items_number += 1
+                correct_number[query_level] += 1
 
             response_eval = ResponseEval(
                 final_answer=response["assistant"][0],
@@ -417,26 +420,31 @@ class GAIAAssistantEvaluator(GreenAgent):
             response_records.append(response_eval)
             logger.info(f"Response Evaluation:\n{response_eval.model_dump_json()}")
 
-        score = (correct_number / items_number) if items_number else 0.0
-        avg_time = (sum_time_consumed / items_number) if items_number else 0.0
-        assistant_eval = AssistantEval(
-            score=score,
-            average_time_to_answer_sec=avg_time,
-            responses_records=response_records,
-        )
+            break
+
+        total_query_number = sum(items_number.values())
+        total_correct = sum(correct_number.values())
+        scores = {f"Level {level}": (correct_number[level] / items_number[level]) if items_number[level] > 0 else None for level in items_number.keys()}
+        scores["Total"] = (total_correct / total_query_number) if total_query_number > 0 else 0.0
+        avg_time = sum_time_consumed / total_query_number
 
         logger.info(
             "Assistant Evaluation: \n"
             f"Query Number: {items_number} \n"
-            f"Score: {score} \n"
+            f"Score: {scores} \n"
             f"Average Time: {avg_time}"
+        )
+
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message(f"GAIA benchmarking completed. Score: {scores}, Average Time: {avg_time} seconds."),
         )
 
         return {
             "evaluation_level": req.config.get("evaluation_level"),
             "split": gaia_split,
             "num_items": items_number,
-            "score": score,
+            "score": scores,
             "average_time_to_answer_sec": avg_time,
             "responses_records": [r.model_dump() for r in response_records],
             "errors": errors,
@@ -485,15 +493,24 @@ class GAIAAssistantEvaluator(GreenAgent):
                     "error": "image_save_failed",
                 })
                 continue
+            
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"DOCVQA query index={idx+1}/{num_samples}, question={question}"),
+            )
 
             try:
                 response = await self.assistant_response(
                     req.participants,
                     question,
                     filename,
-                    updater,
                 )
                 pred = response["assistant"][0] if response["assistant"] else ""
+
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(f"Assistant response: {response}. Ground truth: {answers}."),
+                )
             except Exception as e:
                 records.append({
                     "id": sample.get("question_id") or sample.get("questionId") or idx,
@@ -514,6 +531,8 @@ class GAIAAssistantEvaluator(GreenAgent):
                 "anls": score,
                 "image_filename": filename,
             })
+
+            break
 
         anls = (sum(scores) / len(scores)) if scores else 0.0
 
@@ -551,6 +570,11 @@ class GAIAAssistantEvaluator(GreenAgent):
             else:
                 answers = list(answers)
 
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"SEALQA query index={idx+1}/{len(dataset)}, question={question}"),
+            )
+
             if not question:
                 records.append({
                     "id": idx,
@@ -563,9 +587,12 @@ class GAIAAssistantEvaluator(GreenAgent):
                     req.participants,
                     question,
                     None,
-                    updater,
                 )
                 pred = response["assistant"][0] if response["assistant"] else ""
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(f"Assistant response: {response}. Ground truth: {answers}."),
+                )
             except Exception as e:
                 total += 1
                 records.append({
@@ -596,6 +623,8 @@ class GAIAAssistantEvaluator(GreenAgent):
                 "is_safe_refusal": is_safe_refusal,
             })
 
+            break
+
         strict_accuracy = (correct_count / total) if total else 0.0
         refusal_rate = (refusal_count / total) if total else 0.0
 
@@ -614,7 +643,6 @@ class GAIAAssistantEvaluator(GreenAgent):
         participants: dict[str, str],
         query: str,
         attached_file: str,
-        updater: TaskUpdater,
     ) -> dict[str, list[str]]:
         responses: dict[str, list[str]] = {"assistant": []}
 
@@ -624,10 +652,7 @@ class GAIAAssistantEvaluator(GreenAgent):
             )
             logger.info(f"{role}: {response}")
             responses[role].append(response)
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(f"{role}: {response}"),
-            )
+
             return response
 
         prompt = f"User query: {query}."
@@ -646,32 +671,32 @@ class GAIAAssistantEvaluator(GreenAgent):
 
         return responses
 
-    async def evaluate_response(self, user_query: str, response: str, ground_truth: str) -> bool:
-        system_prompt = (
-            "You are an expert evaluator for AI assistants. "
-            "Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. "
-            "Provide a bool value to indicate correctness for generated responses."
-        )
+    # async def evaluate_response(self, user_query: str, response: str, ground_truth: str) -> bool:
+    #     system_prompt = (
+    #         "You are an expert evaluator for AI assistants. "
+    #         "Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. "
+    #         "Provide a bool value to indicate correctness for generated responses."
+    #     )
 
-        user_prompt = (
-            "Evaluate the response from the AI assistant to the user query: "
-            f"'{user_query}'\n"
-            f"Response: '{response}'\n"
-            f"Ground Truth: '{ground_truth}'\n"
-            "Provide a bool value to indicate correctness for generated responses."
-        )
+    #     user_prompt = (
+    #         "Evaluate the response from the AI assistant to the user query: "
+    #         f"'{user_query}'\n"
+    #         f"Response: '{response}'\n"
+    #         f"Ground Truth: '{ground_truth}'\n"
+    #         "Provide a bool value to indicate correctness for generated responses."
+    #     )
 
-        response = self._client.models.generate_content(
-            model=self._eval_model,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                response_schema=bool,
-            ),
-            contents=user_prompt,
-        )
+    #     response = self._client.models.generate_content(
+    #         model=self._eval_model,
+    #         config=genai.types.GenerateContentConfig(
+    #             system_instruction=system_prompt,
+    #             response_mime_type="application/json",
+    #             response_schema=bool,
+    #         ),
+    #         contents=user_prompt,
+    #     )
 
-        return response.parsed
+    #     return response.parsed
 
 
 async def main():
