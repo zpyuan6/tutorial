@@ -2,7 +2,9 @@
 
 ## Abstract
 
-Our green agent evaluates general-purpose AI assistants on GAIA-style real-world questions with unambiguous answers, where success requires combining multi-step reasoning with multimodal understanding, web browsing, and tool use (e.g., retrieving and verifying information, chaining intermediate computations, and synthesising evidence into a final exact answer). Tasks span three difficulty levels with increasing autonomy and tooling demands.
+Our green agent evaluates general-purpose assistants on an extended GAIA-style suite of real-world questions with unambiguous, automatically checkable answers, requiring multi-step reasoning and robust tool use. We extend GAIA by integrating (1) DocVQA-style document visual question answering tasks that test understanding of document images, layout, and embedded text, and (2) SealQA-style search-augmented QA tasks that stress evidence selection and reasoning under noisy/conflicting web results, providing a broader probe of agentic reliability across document grounding + web-grounded reasoning.
+
+Tasks span three difficulty levels with increasing autonomy and tooling demands.
 - Level 1: minimal tool use and typically <5 steps
 - Level 2: ~5–10 steps, often requiring multiple tools and cross-source synthesis
 - Level 3: long-horizon, open-ended tool use and robust multi-step execution (near “general assistant” capability)
@@ -52,6 +54,18 @@ To run this example manually, start the agent servers in separate terminals, and
 After running, you should see an output similar to this.
 
 ![Sample output](assets/sample_output.png)
+
+5. Docker Build
+Building evaluator (Please change Env Variable Format according to your system)
+```
+docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zhipeng/gaia_extension:v1.0 -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
+```
+
+6. Docker Run
+```
+docker run -p 9009:9009 --network host -d ghcr.io/zhipeng/gaia_extension:v1.0
+```
+--add-host="host.docker.internal:host-gateway"
 
 ## Project Structure
 ```

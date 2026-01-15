@@ -60,8 +60,8 @@ class GAIAAssistantEvaluator(GreenAgent):
     def __init__(self):
         self._required_roles = ["assistant"]
         self._required_config_keys = ["evaluation_level"]
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self._client = genai.Client(api_key=api_key)
+        # api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        # self._client = genai.Client(api_key=api_key)
         self._tool_provider = ToolProvider()
         self._eval_model = os.getenv("EVALUATOR_MODEL", "gemini-2.0-flash")
 
@@ -420,7 +420,6 @@ class GAIAAssistantEvaluator(GreenAgent):
             response_records.append(response_eval)
             logger.info(f"Response Evaluation:\n{response_eval.model_dump_json()}")
 
-            break
 
         total_query_number = sum(items_number.values())
         total_correct = sum(correct_number.values())
@@ -532,7 +531,6 @@ class GAIAAssistantEvaluator(GreenAgent):
                 "image_filename": filename,
             })
 
-            break
 
         anls = (sum(scores) / len(scores)) if scores else 0.0
 
@@ -622,8 +620,6 @@ class GAIAAssistantEvaluator(GreenAgent):
                 "is_correct": is_correct,
                 "is_safe_refusal": is_safe_refusal,
             })
-
-            break
 
         strict_accuracy = (correct_count / total) if total else 0.0
         refusal_rate = (refusal_count / total) if total else 0.0
