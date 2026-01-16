@@ -58,7 +58,7 @@ After running, you should see an output similar to this.
 5. Docker Build
 Building evaluator (Please change Env Variable Format according to your system)
 ```
-docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zhipeng/gaia_extension:v1.0 -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
+docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zpyuan6/gaia_extension:v1.0 -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
 ```
 
 6. Docker Run

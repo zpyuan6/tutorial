@@ -358,9 +358,6 @@ class GAIAAssistantEvaluator(GreenAgent):
             attached_file = item.get("file_path")
             items_number[query_level] += 1
 
-            if not attached_file:
-                continue
-
             logger.info(
                 f"GAIA query index={index+1}/{total_df_rows}, level={query_level}, have_attached_file={bool(attached_file)}, question={user_query}"
                 )
