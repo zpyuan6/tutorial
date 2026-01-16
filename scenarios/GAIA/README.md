@@ -64,9 +64,12 @@ docker push ghcr.io/zpyuan6/gaia_extension:v1.0
 
 6. Docker Run
 ```
-docker run -p 9009:9009 --network host -d ghcr.io/zpyuan6/gaia_extension:v1.0
+docker run --network host -d ghcr.io/zpyuan6/gaia_extension:v1.0
 ```
---add-host="host.docker.internal:host-gateway"
+or following comment will export 9009 port in container, but can not connect Other Agent, due to docker network
+```
+docker run -p 9009:9009 -d ghcr.io/zpyuan6/gaia_extension:v1.0
+```
 
 ## Project Structure
 ```
