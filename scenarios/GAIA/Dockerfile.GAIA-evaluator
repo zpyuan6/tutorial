@@ -20,6 +20,7 @@ RUN python3 -c "from huggingface_hub._login import _login; print('${HF_TOKEN}');
 
 
 COPY scenarios scenarios
+COPY src src
 
 ENTRYPOINT ["uv", "run", "scenarios/GAIA/assistant_evaluator.py"]
 CMD ["--host", "0.0.0.0"]

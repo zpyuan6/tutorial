@@ -174,6 +174,8 @@ async def read_file_from_artifact(filename: str, tool_context):
         content = inspect_image(str(out_path), "Describe the content of the image.")
     elif mime in ['text/csv', 'application/json', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']:
         content = read_excel(str(out_path))
+    else:
+        content = f"Please use code to read {mime} file: {out_path}."
     
     return content
 
