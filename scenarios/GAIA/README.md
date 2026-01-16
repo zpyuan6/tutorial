@@ -63,7 +63,7 @@ docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/z
 
 6. Docker Run
 ```
-docker run -p 9009:9009 --network host -d ghcr.io/zhipeng/gaia_extension:v1.0
+docker run -p 9009:9009 --network host -d ghcr.io/zpyuan6/gaia_extension:v1.0
 ```
 --add-host="host.docker.internal:host-gateway"
 

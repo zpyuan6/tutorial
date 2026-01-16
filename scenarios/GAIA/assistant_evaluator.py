@@ -88,7 +88,7 @@ class GAIAAssistantEvaluator(GreenAgent):
         print("local_filename", local_filename)
 
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_filename
+            return local_path
 
         base_url = "https://hf-mirror.com/datasets/gaia-benchmark/GAIA/resolve/main/"
 
@@ -110,7 +110,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                 with open(local_path, "wb") as f:
                     f.write(resp.content)
                 logger.info(f"download successfully {local_path}")
-                return local_filename
+                return local_path
             else:
                 logger.error(f" download failed Status {resp.status_code}: {url}")
                 return None
@@ -358,6 +358,9 @@ class GAIAAssistantEvaluator(GreenAgent):
             attached_file = item.get("file_path")
             items_number[query_level] += 1
 
+            if not attached_file:
+                continue
+
             logger.info(
                 f"GAIA query index={index+1}/{total_df_rows}, level={query_level}, have_attached_file={bool(attached_file)}, question={user_query}"
                 )
@@ -382,6 +385,7 @@ class GAIAAssistantEvaluator(GreenAgent):
                 )
             except Exception as e:
                 errors.append({"index": int(index), "error": str(e), "question": user_query})
+                logger.error(f"GAIA query index={index} failed: {e.__traceback__}")
                 response_records.append(
                     ResponseEval(
                         final_answer="",
@@ -395,7 +399,6 @@ class GAIAAssistantEvaluator(GreenAgent):
                     TaskState.working,
                     new_agent_text_message(f"GAIA item failed (index={index}): {e}"),
                 )
-                continue
 
             time_consumed = asyncio.get_event_loop().time() - start_time
             sum_time_consumed += time_consumed
@@ -642,57 +645,30 @@ class GAIAAssistantEvaluator(GreenAgent):
     ) -> dict[str, list[str]]:
         responses: dict[str, list[str]] = {"assistant": []}
 
-        async def turn(role: str, prompt: str) -> str:
+        async def turn(role: str, prompt: str, files: list[str]=None) -> str:
             response = await self._tool_provider.talk_to_agent(
-                prompt, str(participants[role]), new_conversation=True
-            )
+                    prompt, str(participants[role]), new_conversation=True, files=files 
+                )
             logger.info(f"{role}: {response}")
             responses[role].append(response)
 
             return response
 
-        prompt = f"User query: {query}."
+        prompt = f"User query: {query}. \n Response user query."
 
         if attached_file:
-            prompt += (
-                "\n\n[System Notice] A file has been downloaded to your local workspace."
-                f"\nFilename: {attached_file}"
-                f"\nPath: workspace/{attached_file}"
-                "\nUse the appropriate tool based on file type: read_text_file, read_excel, read_pdf, or inspect_image."
-            )
+            # prompt += (
+            #     "\n\n[System Notice] A file has been downloaded to your local workspace."
+            #     f"\nFilename: {attached_file}"
+            #     f"\nPath: workspace/{attached_file}"
+            #     "\nUse the appropriate tool based on file type: read_text_file, read_excel, read_pdf, or inspect_image."
+            # )
+            await turn("assistant", prompt, [attached_file])
         else:
-            prompt += " Response user query."
-
-        await turn("assistant", prompt)
+            # prompt += " Response user query."
+            await turn("assistant", prompt)
 
         return responses
-
-    # async def evaluate_response(self, user_query: str, response: str, ground_truth: str) -> bool:
-    #     system_prompt = (
-    #         "You are an expert evaluator for AI assistants. "
-    #         "Your task is to evaluate the assistant's response to a user query based on the provided ground truth response. "
-    #         "Provide a bool value to indicate correctness for generated responses."
-    #     )
-
-    #     user_prompt = (
-    #         "Evaluate the response from the AI assistant to the user query: "
-    #         f"'{user_query}'\n"
-    #         f"Response: '{response}'\n"
-    #         f"Ground Truth: '{ground_truth}'\n"
-    #         "Provide a bool value to indicate correctness for generated responses."
-    #     )
-
-    #     response = self._client.models.generate_content(
-    #         model=self._eval_model,
-    #         config=genai.types.GenerateContentConfig(
-    #             system_instruction=system_prompt,
-    #             response_mime_type="application/json",
-    #             response_schema=bool,
-    #         ),
-    #         contents=user_prompt,
-    #     )
-
-    #     return response.parsed
 
 
 async def main():

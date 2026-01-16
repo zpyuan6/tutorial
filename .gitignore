@@ -8,3 +8,4 @@ run.log
 scenarios/GAIA/workspace/
 scenarios/GAIA/workspace/**
 .vscode/
+tmp/*

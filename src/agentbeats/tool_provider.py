@@ -15,7 +15,7 @@ class ToolProvider:
     def __init__(self):
         self._context_ids = {}
 
-    async def talk_to_agent(self, message: str, url: str, new_conversation: bool = False):
+    async def talk_to_agent(self, message: str, url: str, new_conversation: bool = False, files: list[str] = None) -> str:
         """
         Communicate with another agent by sending a message and receiving their response.
 
@@ -31,7 +31,7 @@ class ToolProvider:
         attempts = 0
 
         while True:
-            outputs = await send_message(message=message, base_url=url, context_id=context_id)
+            outputs = await send_message(message=message, base_url=url, context_id=context_id, files=files)
             if outputs.get("status", "completed") == "completed":
                 self._context_ids[url] = outputs.get("context_id", None)
                 return outputs["response"]

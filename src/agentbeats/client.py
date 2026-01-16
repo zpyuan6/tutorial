@@ -16,20 +16,45 @@ from a2a.types import (
     Role,
     TextPart,
     DataPart,
+    FilePart, 
+    FileWithBytes
 )
+import base64
+import mimetypes
+from pathlib import Path
 
 
 DEFAULT_TIMEOUT = 300
 
+def make_file_part(path: str) -> Part:
+    p = Path(path)
+    mime = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    b64 = base64.b64encode(p.read_bytes()).decode("utf-8")
 
-def create_message(*, role: Role = Role.user, text: str, context_id: str | None = None) -> Message:
-    return Message(
-        kind="message",
-        role=role,
-        parts=[Part(TextPart(kind="text", text=text))],
-        message_id=uuid4().hex,
-        context_id=context_id
-    )
+    # FileWithBytes has fields: bytes, name, mime_type :contentReference[oaicite:1]{index=1}
+    f = FileWithBytes(bytes=b64, name=p.name, mime_type=mime)
+    return Part(root=FilePart(file=f))
+
+def create_message(*, role: Role = Role.user, text: str, context_id: str | None = None, files: list[str] = None) -> Message:
+
+    if files and len(files) > 0:
+        parts = [Part(TextPart(kind="text", text=text))]
+        parts += [make_file_part(path) for path in files]
+        return Message(
+            kind="message",
+            role=role,
+            parts=parts,
+            message_id=uuid4().hex,
+            context_id=context_id
+        )
+    else:
+        return Message(
+            kind="message",
+            role=role,
+            parts=[Part(TextPart(kind="text", text=text))],
+            message_id=uuid4().hex,
+            context_id=context_id
+        )
 
 def merge_parts(parts: list[Part]) -> str:
     chunks = []
@@ -40,7 +65,7 @@ def merge_parts(parts: list[Part]) -> str:
             chunks.append(json.dumps(part.root.data, indent=2))
     return "\n".join(chunks)
 
-async def send_message(message: str, base_url: str, context_id: str | None = None, streaming=False, consumer: Consumer | None = None):
+async def send_message(message: str, base_url: str, context_id: str | None = None, streaming=False, consumer: Consumer | None = None, files: list[str] = None) -> dict:
     """Returns dict with context_id, response and status (if exists)"""
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as httpx_client:
         resolver = A2ACardResolver(httpx_client=httpx_client, base_url=base_url)
@@ -54,7 +79,7 @@ async def send_message(message: str, base_url: str, context_id: str | None = Non
         if consumer:
             await client.add_event_consumer(consumer)
 
-        outbound_msg = create_message(text=message, context_id=context_id)
+        outbound_msg = create_message(text=message, context_id=context_id, files=files)
         last_event = None
         outputs = {
             "response": "",

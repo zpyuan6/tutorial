@@ -12,7 +12,7 @@ import sys
 import re
 import string
 import warnings
-
+from pathlib import Path
 
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.join(CURRENT_FILE_DIR, "workspace")
@@ -56,7 +56,7 @@ def read_text_file(filename: str) -> str:
     DO NOT use this for .xlsx, .pdf, or images.
     """
     try:
-        filepath = _get_safe_path(filename)
+        filepath = filename
         if not os.path.exists(filepath):
             return f"Error: File {filename} not found."
         
@@ -83,16 +83,14 @@ def read_excel(filename: str) -> str:
     """
     print(f"Tool: Reading Excel {filename}...")
     try:
-        filepath = _get_safe_path(filename)
+        filepath = filename
         if not os.path.exists(filepath):
             return f"Error: File {filename} not found."
         
         df = pd.read_excel(filepath, nrows=50)
         
-
         info = f"Shape: {df.shape} (Rows, Columns)\nColumns: {list(df.columns)}\n"
         
-
         markdown_table = df.to_markdown(index=False)
         
         return f"Excel Content ({filename}):\n{info}\n{markdown_table}\n\n(Note: Only first 50 rows displayed. If you need more analysis, use `execute_python` with pandas.)"
@@ -133,6 +131,53 @@ def visit_webpage(url: str) -> str:
         return f"Error visiting {url}: {str(e)}"
     
 
+async def read_file_from_artifact(filename: str, tool_context):
+    """Fetches content from user uploaded artifact."""
+    part = await tool_context.load_artifact(filename=filename)  # :contentReference[oaicite:1]{index=1}
+    inline = getattr(part, "inline_data", None)
+
+    print(f"Tool: Reading file from artifact {filename}...")
+    
+    if not inline or not getattr(inline, "data", None):
+        return f"Error: Artifact {filename} has no inline data."
+
+    mime = inline.mime_type
+    data: bytes = inline.data
+
+    suffix = {
+        "application/pdf": ".pdf",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "text/csv": ".csv",
+        "application/json": ".json",
+        "text/plain": ".txt",
+    }.get(mime, "")
+
+    out_dir = Path("tmp/adk_artifacts")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    base = Path(filename).name  # 防止路径穿越
+    if suffix and not base.lower().endswith(suffix):
+        base = f"{Path(base).stem}{suffix}"
+
+    out_path = out_dir / base
+    out_path.write_bytes(data)
+
+    print("Tool: Written artifact to", str(out_path))
+
+    # call specific reader based on mime type
+    if mime == "application/pdf":
+        content = read_pdf(str(out_path))
+    elif mime == "text/plain":
+        content = read_text_file(str(out_path))
+    elif mime in ['image/png', 'image/jpeg']:
+        content = inspect_image(str(out_path), "Describe the content of the image.")
+    elif mime in ['text/csv', 'application/json', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']:
+        content = read_excel(str(out_path))
+    
+    return content
+
+
 def read_pdf(filename: str, page_number: int = 0) -> str:
     """
     Reads text from a PDF file.
@@ -143,7 +188,7 @@ def read_pdf(filename: str, page_number: int = 0) -> str:
     """
     print(f"Tool: Reading PDF {filename}...")
     try:
-        filepath = _get_safe_path(filename)
+        filepath = filename
         if not os.path.exists(filepath):
             return f"Error: File {filename} not found."
         
@@ -171,24 +216,21 @@ def read_pdf(filename: str, page_number: int = 0) -> str:
         return f"Error reading PDF: {str(e)}"
     
 def inspect_image(filename: str, question: str) -> str:
-    print(f"Tool: Inspecting image {filename}...")
+    print(f"Tool: Inspecting image {filename}, with question {question}..")
     try:
-        filepath = _get_safe_path(filename)
+        filepath = filename
         if not os.path.exists(filepath):
             return f"Error: Image {filename} not found."
-
-
+        
         try:
             img = PIL.Image.open(filepath)
         except Exception as e:
             return f"Error: The file exists but is not a valid image. ({str(e)})"
 
-
         vision_model_name = os.getenv("VISION_MODEL", "gemini-2.0-flash")
         vision_model = genai.GenerativeModel(vision_model_name)
 
         response = vision_model.generate_content([question, img])
-        
 
         if response.parts:
             return f"Vision Response: {response.text}"
