@@ -55,7 +55,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ matrix.name }}
+          images: ghcr.io/${{ github.repository }}-${{ matrix.name }}
           tags: |
             # For tags like v1.0, create tag '1.0'
             type=semver,pattern={{version}}

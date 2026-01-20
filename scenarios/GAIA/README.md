@@ -58,17 +58,17 @@ After running, you should see an output similar to this.
 5. Docker Build
 Building evaluator (Please change Env Variable Format according to your system)
 ```
-docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zpyuan6/gaia_extension:v1.0 -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
-docker push ghcr.io/zpyuan6/gaia_extension:v1.0
+docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zpyuan6/tutorial-gaia_extension:latest -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
+docker push ghcr.io/zpyuan6/tutorial-gaia_extension:latest
 ```
 
 6. Docker Run
 ```
-docker run --network host -d ghcr.io/zpyuan6/gaia_extension:v1.0
+docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest
 ```
 or following comment will export 9009 port in container, but can not connect Other Agent, due to docker network
 ```
-docker run -p 9009:9009 -d ghcr.io/zpyuan6/gaia_extension:v1.0
+docker run -p 9009:9009 -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest
 ```
 
 ## Project Structure
