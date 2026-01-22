@@ -81,6 +81,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             HF_TOKEN=${{ secrets.HF_TOKEN }}
+            GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
           # Explicitly build for linux/amd64 (GitHub Actions default)
           platforms: linux/amd64
 
