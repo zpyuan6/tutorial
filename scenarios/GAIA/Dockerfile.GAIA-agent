@@ -1,19 +1,20 @@
 FROM ghcr.io/astral-sh/uv:python3.12-trixie
 
 RUN adduser agentbeats
-USER agentbeats
+USER root
 RUN mkdir -p /home/agentbeats/.cache/uv
 WORKDIR /home/agentbeats/tutorial
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src src
-
+COPY scenarios scenarios
 RUN \
     --mount=type=cache,target=/home/agentbeats/.cache/uv,uid=1000 \
     uv sync --locked
 
-COPY scenarios scenarios
+ARG GOOGLE_API_KEY
+ENV GOOGLE_API_KEY=${GOOGLE_API_KEY}
 
-ENTRYPOINT ["uv", "run", "scenarios/GAIA/GAIA_agent.py"]
+ENTRYPOINT ["uv", "run", "scenarios/GAIA/assistant.py"]
 CMD ["--host", "0.0.0.0"]
 EXPOSE 9019

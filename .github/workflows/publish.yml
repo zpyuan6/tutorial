@@ -28,6 +28,8 @@ jobs:
           #   dockerfile: scenarios/tau2/Dockerfile.tau2-evaluator
           - name: gaia_extension
             dockerfile: scenarios/GAIA/Dockerfile.GAIA-evaluator
+          - name: gaia_agent
+            dockerfile: scenarios/GAIA/Dockerfile.GAIA-agent
           
 
     # These permissions are required for the workflow to:
