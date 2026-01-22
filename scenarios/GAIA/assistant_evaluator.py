@@ -397,6 +397,8 @@ class GAIAAssistantEvaluator(GreenAgent):
                     new_agent_text_message(f"GAIA item failed (index={index}): {e}"),
                 )
 
+                continue
+
             time_consumed = asyncio.get_event_loop().time() - start_time
             sum_time_consumed += time_consumed
 
