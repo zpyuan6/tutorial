@@ -2,19 +2,25 @@
 
 ## Abstract
 
-Our green agent evaluates general-purpose assistants on an extended GAIA-style suite of real-world questions with unambiguous, automatically checkable answers, requiring multi-step reasoning and robust tool use. We extend GAIA by integrating (1) DocVQA-style document visual question answering tasks that test understanding of document images, layout, and embedded text, and (2) SealQA-style search-augmented QA tasks that stress evidence selection and reasoning under noisy/conflicting web results, providing a broader probe of agentic reliability across document grounding + web-grounded reasoning.
+This benchmark evaluates general-purpose AI assistants on an extended GAIA-style suite combining three challenging datasets:
 
-Tasks span three difficulty levels with increasing autonomy and tooling demands.
-- Level 1: minimal tool use and typically <5 steps
-- Level 2: ~5–10 steps, often requiring multiple tools and cross-source synthesis
-- Level 3: long-horizon, open-ended tool use and robust multi-step execution (near “general assistant” capability)
+1. **GAIA** - General AI Assistant benchmark with real-world questions requiring multi-step reasoning and tool use
+2. **DocVQA** - Document Visual Question Answering tasks testing understanding of document images, layout, and embedded text
+3. **SEALQA** - Search-augmented QA tasks stressing evidence selection and reasoning under noisy/conflicting web results
 
-Concretely, the green agent evaluates whether an agent can answer user's questions with
-- Reasoning over real-world queries that are straightforward for humans but challenging for current AI assistants.
-- Web browsing + evidence gathering, where the agent must locate relevant sources and extract the needed facts.
-- Tool-use proficiency, i.e., correctly deciding when and how to use external tools to reach a verifiable answer.
-- Multimodal handling when tasks include non-text inputs (e.g., interpreting visual/file content as part of solving).
-- Increasing autonomy across 3 levels, from relatively direct tasks to longer-horizon, multi-tool problem solving.
+**GAIA Difficulty Levels:**
+- **Level 1**: Minimal tool use, typically <5 steps
+- **Level 2**: ~5–10 steps, requiring multiple tools and cross-source synthesis
+- **Level 3**: Long-horizon, open-ended tool use and robust multi-step execution (near "general assistant" capability)
+
+**Evaluation Capabilities:**
+- **Reasoning** over real-world queries challenging for AI but straightforward for humans
+- **Web browsing** and evidence gathering from multiple sources
+- **Tool-use proficiency** - deciding when and how to use external tools for verifiable answers
+- **Multimodal handling** including images, PDFs, Excel files, and other document formats
+- **Code execution** for data analysis, web scraping, and computational tasks
+- **Wikipedia API access** for historical edit information
+- **Stock market data** retrieval and analysis
 
 
 ## How to start
@@ -38,7 +44,7 @@ hf auth login
 ```
 Login your huggingface account for accessing GAIA dataset
 
-4. Run the [GAIA Evaluator](#example)
+4. Run the GAIA Evaluator
 ```
 uv run agentbeats-run scenarios/GAIA/scenario.toml
 ```
@@ -51,229 +57,270 @@ This command will:
 
 To run this example manually, start the agent servers in separate terminals, and then in another terminal run the A2A client on the scenario.toml file to initiate the assessment.
 
-After running, you should see an output similar to this.
+## Configuration Options
 
-![Sample output](assets/sample_output.png)
+The `scenario.toml` file supports the following configuration options:
+
+### GAIA Evaluation
+- `run_gaia` (boolean, default: true) - Enable/disable GAIA benchmark evaluation
+- `evaluation_level` (string) - Select difficulty level: "all", "l1", "l2", or "l3"
+- `gaia_split` (string, default: "validation") - Dataset split to use: "validation" or "test"
+
+### DocVQA Evaluation
+- `run_docvqa` (boolean, default: true) - Enable/disable DocVQA evaluation
+- `docvqa_num_samples` (integer, default: 100) - Number of samples to evaluate
+- `docvqa_seed` (integer, default: 0) - Random seed for sample selection
+
+### SEALQA Evaluation
+- `run_sealqa` (boolean, default: true) - Enable/disable SEALQA evaluation
+- `sealqa_subset` (string, default: "seal_0") - Dataset subset to evaluate
+
+### Environment Variables
+- `ASSISTANT_MODEL` - Model for the assistant agent (default: "gemini-2.0-flash")
+- `EVALUATOR_MODEL` - Model for the evaluator (default: "gemini-2.0-flash")
+- `VISION_MODEL` - Model for image inspection (default: "gemini-2.0-flash")
+- `MAX_TOOL_OUTPUT_CHARS` - Maximum characters in tool output (default: 8000)
+- `GOOGLE_API_KEY` or `GEMINI_API_KEY` - Required for Gemini models
+- `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN` - Required for accessing GAIA dataset
 
 5. Docker Build
-Building evaluator (Please change Env Variable Format according to your system)
+Building evaluator on local(Please change Env Variable Format according to your system)
 ```
+<!-- Build evaluator -->
 docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zpyuan6/tutorial-gaia_extension:latest -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
-docker push ghcr.io/zpyuan6/tutorial-gaia_extension:latest
+<!-- Build assistant -->
+docker build --platform linux/amd64 --build-arg GOOGLE_API_KEY=%GOOGLE_API_KEY% -t ghcr.io/zpyuan6/tutorial-gaia_agent:latest -f scenarios\GAIA\Dockerfile.GAIA-agent .
 ```
 
 6. Docker Run
+
 ```
-docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest
-```
-or following comment will export 9009 port in container, but can not connect Other Agent, due to docker network
-```
-docker run -p 9009:9009 -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest
+docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest --host 127.0.0.1
+docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_agent:latest --host 127.0.0.1
 ```
 
 ## Project Structure
 ```
-src/
-└─ agentbeats/
-   ├─ green_executor.py        # base A2A green agent executor
-   ├─ models.py                # pydantic models for green agent IO
-   ├─ client.py                # A2A messaging helpers
-   ├─ client_cli.py            # CLI client to start assessment
-   └─ run_scenario.py          # run agents and start assessment
+scenarios/GAIA/
+├─ assistant.py                      # Purple agent (Google ADK) - the assistant being evaluated
+├─ assistant_evaluator.py            # Green agent - evaluates assistants on GAIA, DocVQA, and SEALQA
+├─ assistant_evaluation_common.py    # Shared models and agent card definitions
+├─ tools.py                          # Tool implementations for the assistant
+├─ scenario.toml                     # Configuration for the evaluation
+├─ gaia_scenario.toml                # Alternative scenario configuration
+├─ Dockerfile.GAIA-agent             # Docker configuration for assistant
+├─ Dockerfile.GAIA-evaluator         # Docker configuration for evaluator
+├─ check_model.py                    # Model validation utility
+└─ workspace/                        # Working directory for file operations
+    └─ results/                      # Evaluation results stored here
 
-scenarios/
-└─ debate/                     # implementation of the debate example
-   ├─ debate_judge.py          # green agent impl using the official A2A SDK
-   ├─ adk_debate_judge.py      # alternative green agent impl using Google ADK
-   ├─ debate_judge_common.py   # models and utils shared by above impls
-   ├─ debater.py               # debater agent (Google ADK)
-   └─ scenario.toml            # config for the debate example
+src/agentbeats/
+├─ green_executor.py                 # Base A2A green agent executor
+├─ models.py                         # Pydantic models for green agent IO
+├─ client.py                         # A2A messaging helpers
+├─ tool_provider.py                  # Tool provider for agent interactions
+└─ run_scenario.py                   # Orchestrates agent startup and assessment
 ```
 
-# Agentbeats Tutorial
-Welcome to the Agentbeats Tutorial! 🤖🎵
+## Component Details
 
-Agentbeats is an open platform for **standardized and reproducible agent evaluations** and research.
+### Assistant Agent (Purple Agent)
+The assistant agent ([assistant.py](assistant.py)) is implemented using Google ADK and provides:
+- **Model**: Configurable via `ASSISTANT_MODEL` environment variable (default: gemini-2.0-flash)
+- **Capabilities**: Streaming responses, file handling, multimodal inputs
+- **Artifact Handling**: Automatically processes user-uploaded files and saves them as artifacts
+- **Tools**: Full suite of tools for web browsing, file operations, code execution, and more
 
-This tutorial is designed to help you get started, whether you are:
-- 🔬 **Researcher** → running controlled experiments and publishing reproducible results
-- 🛠️ **Builder** → developing new agents and testing them against benchmarks
-- 📊 **Evaluator** → designing benchmarks, scenarios, or games to measure agent performance
-- ✨ **Enthusiast** → exploring agent behavior, running experiments, and learning by tinkering
+### Evaluator Agent (Green Agent)
+The evaluator ([assistant_evaluator.py](assistant_evaluator.py)) orchestrates the evaluation:
+- Loads datasets from HuggingFace (GAIA, DocVQA, SEALQA)
+- Sends queries to the assistant agent with any required files
+- Scores responses using dataset-specific metrics:
+  - **GAIA**: Exact match scoring with normalization for numbers and lists
+  - **DocVQA**: ANLS (Average Normalized Levenshtein Similarity) score
+  - **SEALQA**: Strict accuracy and safe refusal rate
+- Generates comprehensive JSON results with per-query details
+- Computes overall capability score across all three benchmarks
 
-By the end, you’ll understand:
-- The core concepts behind Agentbeats - green agents, purple agents, and A2A assessments
-- How to run existing evaluations on the platform via the web UI
-- How to build and test your own agents locally
-- Share your agents and evaluation results with the community
+### Tools Available to Assistant
+The assistant has access to these tools ([tools.py](tools.py)):
 
-This guide will help you quickly get started with Agentbeats and contribute to a growing ecosystem of open agent benchmarks.
+1. **File Operations**:
+   - `write_file(filename, content)` - Write text to files
+   - `read_text_file(filename)` - Read plain text files
+   - `read_excel(filename)` - Read Excel files as markdown tables
+   - `read_pdf(filename, page_number)` - Extract text from PDFs
+   - `read_file_from_artifact(filename)` - Read user-uploaded files
+   - `list_files()` - List workspace files
 
+2. **Web & Data**:
+   - `visit_webpage(url)` - Fetch and parse web content
+   - `get_wikipedia_history(page_title)` - Get Wikipedia edit history
+   - `get_stock_prices(ticker)` - Retrieve stock market data
 
-## Core Concepts
-**Green agents** orchestrate and manage evaluations of one or more purple agents by providing an evaluation harness.
-A green agent may implement a single-player benchmark or a multi-player game where agents compete or collaborate. It sets the rules of the game, hosts the match and decides results.
+3. **Vision & Code**:
+   - `inspect_image(filename, question)` - Analyze images using vision model
+   - `execute_python(code)` - Execute Python code for data analysis
 
-**Purple agents** are the participants being evaluated. They possess certain skills (e.g. computer use) that green agents evaluate. In security-themed games, agents are often referred to as red and blue (attackers and defenders).
+4. **Scoring**:
+   - `question_scorer(model_answer, ground_truth)` - Evaluate answers
 
-An **assessment** is a single evaluation session hosted by a green agent and involving one or more purple agents. Purple agents demonstrate their skills, and the green agent evaluates and reports results.
+## Evaluation Metrics
 
-All agents communicate via the **A2A protocol**, ensuring compatibility with the open standard for agent interoperability. Learn more about A2A [here](https://a2a-protocol.org/latest/).
+### GAIA Scoring
+Uses exact match after normalization:
+- **Numbers**: Strips currency symbols, percentages, commas and compares as floats
+- **Lists**: Splits on commas/semicolons, matches length and element-wise comparison
+- **Strings**: Normalizes whitespace and punctuation for comparison
+- Reports accuracy per level (Level 1, 2, 3) and total accuracy
 
-## Run an Assessment
-Follow these steps to run assessments using agents that are already available on the platform.
+### DocVQA Scoring
+Uses ANLS (Average Normalized Levenshtein Similarity):
+- Computes edit distance between prediction and each gold answer
+- Normalizes by max length of prediction and gold answer
+- Scores below 0.5 threshold are set to 0
+- Returns best score across all gold answers
+- Final metric is average ANLS across all samples
 
-1. Navigate to agentbeats.org
-2. Create an account (or log in)
-3. Select the green and purple agents to participate in an assessment
-4. Start the assessment
-5. Observe results
+### SEALQA Scoring
+Uses strict accuracy metrics:
+- **Strict Accuracy**: Exact match after text normalization (lowercase, remove punctuation, remove whitespace)
+- **Safe Refusal Rate**: Percentage of responses containing refusal patterns like "I don't know", "cannot", "unsure"
+- Tracks both metrics to evaluate answer correctness and appropriate uncertainty
 
-## Agent Development
-In this section, you will learn how to:
-- Develop purple agents (participants) and green agents (evaluators)
-- Use common patterns and best practices for building agents
-- Run assessments locally during development
-- Evaluate your agents on the Agentbeats platform
+## Output Format
 
-### General Principles
-You are welcome to develop agents using **any programming language, framework, or SDK** of your choice, as long as you expose your agent as an **A2A server**. This ensures compatibility with other agents and benchmarks on the platform. For example, you can implement your agent from scratch using the official [A2A SDK](https://a2a-protocol.org/latest/sdk/), or use a downstream SDK such as [Google ADK](https://google.github.io/adk-docs/).
+Results are saved as JSON files in `workspace/results/`:
 
-At the beginning of an assessment, the green agent receives an `assessment_request` signal. This signal includes the addresses of the participating agents and the assessment configuration. The green agent then creates a new A2A task and uses the A2A protocol to interact with participants and orchestrate the assessment. During the orchestration, the green agent produces A2A task updates (logs) so that the assessment can be tracked. After the orchestration, the green agent evaluates purple agent performance and produces an A2A artifact with the assessment results.
+### result.json
+```json
+{
+  "gaia": {
+    "evaluation_level": "all",
+    "split": "validation",
+    "num_items": {"1": 45, "2": 67, "3": 23},
+    "score": {
+      "Level 1": 0.85,
+      "Level 2": 0.72,
+      "Level 3": 0.45,
+      "Total": 0.68
+    },
+    "average_time_to_answer_sec": 12.5,
+    "responses_records": [...],
+    "errors": [...]
+  },
+  "docvqa": {
+    "dataset": "lmms-lab/DocVQA",
+    "split": "validation",
+    "num_samples": 100,
+    "actual_num_samples": 98,
+    "seed": 0,
+    "anls": 0.75,
+    "records": [...]
+  },
+  "sealqa": {
+    "dataset": "vtllms/sealqa",
+    "subset": "seal_0",
+    "split": "test",
+    "num_samples": 150,
+    "strict_accuracy": 0.68,
+    "safe_refusal_rate": 0.12,
+    "records": [...]
+  },
+  "capability_score": 0.70
+}
+```
 
+### errors.json
+Contains detailed error logs for failed queries from each benchmark.
 
-#### Assessment Patterns
-Below are some common patterns to help guide your assessment design.
+## Assistant Instructions
 
-- **Artifact submission**: The purple agent produces artifacts (e.g. a trace, code, or research report) and sends them to the green agent for assessment.
-- **Traced environment**: The green agent provides a traced environment (e.g. via MCP, SSH, or a hosted website) and observes the purple agent's actions for scoring.
-- **Message-based assessment**: The green agent evaluates purple agents based on simple message exchanges (e.g. question answering, dialogue, or reasoning tasks).
-- **Multi-agent games**: The green agent orchestrates interactions between multiple purple agents, such as security games, negotiation games, social deduction games, etc.
+The assistant is configured with specific instructions to handle various task types:
 
+1. **Never Give Up**: Always attempt to find a solution using available tools
+2. **Wikipedia History**: Use `execute_python` with Wikipedia API or direct Wikimedia API calls for edit history queries
+3. **File Handling**: Automatically processes artifacts and uses appropriate reader based on file type
+4. **Python Execution**: Use for mathematical calculations, data analysis, and web scraping
+5. **Output Limits**: Print only final values or small slices to avoid overwhelming the context
+6. **No Hallucination**: Always verify information from actual sources
 
-#### Reproducibility
-To ensure reproducibility, your agents (including their tools and environments) must join each assessment with a fresh state.
+## Advanced Usage
 
-### Example
-To make things concrete, we will use a debate scenario as our toy example:
-- Green agent (`DebateJudge`) orchestrates a debate between two agents by using an A2A client to alternate turns between participants. Each participant's response is forwarded to the caller as a task update. After the orchestration, it applies an LLM-as-Judge technique to evaluate which debater performed better and finally produces an artifact with the results.
-- Two purple agents (`Debater`) participate by presenting arguments for their side of the topic.
+### Running Individual Benchmarks
 
-To run this example, we start all three servers and then use an A2A client to send an `assessment_request` to the green agent and observe its outputs.
-The full example code is given in the template repository. Follow the quickstart guide to setup the project and run the example.
+Modify `scenario.toml` to run specific benchmarks:
+```toml
+[config]
+run_gaia = true
+run_docvqa = false
+run_sealqa = false
+evaluation_level = "l1"
+gaia_split = "validation"
+```
 
+### Custom Sampling
 
-### Evaluate Your Agent on the Platform
-To run assessments on your agent on the platform, you'll need a public address for your agent service. We recommend using [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for quick onboarding without bandwidth limits, but you are welcome to use nginx or ngrok if you prefer.
+For DocVQA, control sampling:
+```toml
+[config]
+docvqa_num_samples = 50  # Reduce sample size
+docvqa_seed = 42         # Change random seed for different samples
+```
 
-1. Install Cloudflare Tunnel
+### Using Different Models
+
+Set environment variables before running:
 ```bash
-brew install cloudflared # macOS
+export ASSISTANT_MODEL="gemini-1.5-pro"
+export EVALUATOR_MODEL="gemini-2.0-flash"
+export VISION_MODEL="gemini-1.5-pro-vision"
 ```
-2. Start the Cloudflare tunnel pointing to your local server
-```bash
-cloudflared tunnel --url http://127.0.0.1:9019
-```
-The tunnel will output a public URL (e.g., `https://abc-123.trycloudflare.com`). Copy this URL.
 
-3. Start your A2A server with the `--card-url` flag using the URL from step 2
-```bash
-python scenarios/debate/debater.py --host 127.0.0.1 --port 9019 --card-url https://abc-123.trycloudflare.com
-```
-The agent card will now contain the correct public URL when communicating with
-other agents.
+### Analyzing Results
 
-4. Register your agent on agentbeats.org with this public URL.
-5. Run an assessment as described [earlier](#run-an-assessment)
+Results include detailed per-query information:
+- Individual predictions and ground truth
+- Correctness flags
+- Time taken per query
+- Error messages for failed queries
 
-Note: Restarting the tunnel generates a new URL, so you'll need to restart your
-agent with the new `--card-url` and update the URL in the web UI. You may
-consider using a [Named Tunnel](https://developers.cloudflare.com/learning-paths/clientless-access/connect-private-applications/create-tunnel/)
-for a persistent URL.
+Use this data for error analysis, model comparison, and identifying weak areas.
 
+## Troubleshooting
 
-## Best Practices 💡
+### Dataset Access Issues
+- Ensure `HF_TOKEN` is set and valid
+- Run `hf auth login` to authenticate with HuggingFace
+- Check that you have access to the gaia-benchmark/GAIA dataset
 
-Developing robust and efficient agents requires more than just writing code. Here are some best practices to follow when building for the AgentBeats platform, covering security, performance, and reproducibility.
+### File Download Failures
+- Files are downloaded to `workspace/` directory
+- Check network connectivity to HuggingFace mirrors
+- Verify file paths in error logs
 
-### API Keys and Cost Management
+### Model API Errors
+- Confirm `GOOGLE_API_KEY` or `GEMINI_API_KEY` is set
+- Check API quota and rate limits
+- Verify model names are valid for your API access
 
-AgentBeats uses a Bring-Your-Own-Key (BYOK) model. This gives you maximum flexibility to use any LLM provider, but also means you are responsible for securing your keys and managing costs.
+### Tool Execution Timeouts
+- Python code execution has 60-second timeout
+- Increase `MAX_TOOL_OUTPUT_CHARS` if truncation is too aggressive
+- Check logs for specific tool failure reasons
 
--   **Security**: You provide your API keys directly to the agents running on your own infrastructure. Never expose your keys in client-side code or commit them to public repositories. Use environment variables (like in the tutorial's `.env` file) to manage them securely.
+## Contributing
 
--   **Cost Control**: If you publish a public agent, it could become popular unexpectedly. To prevent surprise bills, it's crucial to set spending limits and alerts on your API keys or cloud account. For example, if you're only using an API for a single agent on AgentBeats, a limit of $10 with an alert at $5 might be a safe starting point.
+To improve the benchmark:
+1. Add new tools to `tools.py` for expanded capabilities
+2. Implement additional evaluation metrics in `assistant_evaluator.py`
+3. Extend scoring functions for new question types
+4. Add support for more datasets
 
-#### Getting Started with Low Costs
-If you are just getting started and want to minimize costs, many services offer generous free tiers.
--   **Google Gemini**: Often has a substantial free tier for API access.
--   **OpenRouter**: Provides free credits upon signup and can route requests to many different models, including free ones.
--   **Local LLMs**: If you run agents on your own hardware, you can use a local LLM provider like [Ollama](https://ollama.com/) to avoid API costs entirely.
+## References
 
-#### Provider-Specific Guides
--   **OpenAI**:
-    -   Finding your key: [Where do I find my OpenAI API key?](https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key)
-    -   Setting limits: [Usage limits](https://platform.openai.com/settings/organization/limits)
-
--   **Anthropic (Claude)**:
-    -   Getting started: [API Guide](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
-    -   Setting limits: [Spending limits](https://console.anthropic.com/settings/limits)
-
--   **Google Gemini**:
-    -   Finding your key: [Get an API key](https://ai.google.dev/gemini-api/docs/api-key)
-    -   Setting limits requires using Google Cloud's billing and budget features. Be sure to set up [billing alerts](https://cloud.google.com/billing/docs/how-to/budgets).
-
--   **OpenRouter**:
-    -   Request a key from your profile page under "Keys".
-    -   You can set a spending limit directly in the key creation flow. This limit aggregates spend across all models accessed via that key.
-
-
-### Efficient & Reliable Assessments
-
-#### Communication
-Agents in an assessment often run on different machines across the world. They communicate over the internet, which introduces latency.
-
--   **Minimize Chattiness**: Design interactions to be meaningful and infrequent. Avoid back-and-forth for trivial information.
--   **Set Timeouts**: A single unresponsive agent can stall an entire assessment. Your A2A SDK may handle timeouts, but it's good practice to be aware of them and configure them appropriately.
--   **Compute Close to Data**: If an agent needs to process a large dataset or file, it should download that resource and process it locally, rather than streaming it piece by piece through another agent.
-
-#### Division of Responsibilities
-The green and purple agents have distinct roles. Adhering to this separation is key for efficient and scalable assessments, especially over a network.
-
--   **Green agent**: A lightweight verifier or orchestrator. Its main job is to set up the scenario, provide context to purple agents, and evaluate the final result. It should not perform heavy computation.
--   **Purple agent**: The workhorse. It performs the core task, which may involve complex computation, running tools, or long-running processes.
-
-Here's an example for a security benchmark:
-1.  The **green agent** defines a task (e.g., "find a vulnerability in this codebase") and sends the repository URL to the purple agent.
-2.  The **purple agent** clones the code, runs its static analysis tools, fuzzers, and other agentic processes. This could take a long time and consume significant resources.
-3.  Once it finds a vulnerability, the **purple agent** sends back a concise report: the steps to reproduce the bug and a proposed patch.
-4.  The **green agent** receives this small payload, runs the reproduction steps, and verifies the result. This final verification step is quick and lightweight.
-
-This structure keeps communication overhead low and makes the assessment efficient.
-
-### Taking Advantage of Platform Features
-AgentBeats is more than just a runner; it's an observability platform. You can make your agent's "thought process" visible to the community and to evaluators.
-
--   **Emit Traces**: As your agent works through a problem, use A2A `task update` messages to report its progress, current strategy, or intermediate findings. These updates appear in real-time in the web UI and in the console during local development.
--   **Generate Artifacts**: When your agent produces a meaningful output (like a piece of code, a report, or a log file), save it as an A2A `artifact`. Artifacts are stored with the assessment results and can be examined by anyone viewing the battle.
-
-Rich traces and artifacts are invaluable for debugging, understanding agent behavior, and enabling more sophisticated, automated "meta-evaluations" of agent strategies.
-
-### Assessment Isolation and Reproducibility
-For benchmarks to be fair and meaningful, every assessment run must be independent and reproducible.
-
--   **Start Fresh**: Each agent should start every assessment from a clean, stateless initial state. Avoid carrying over memory, files, or context from previous battles.
--   **Isolate Contexts**: The A2A protocol provides a `task_id` for each assessment. Use this ID to namespace any local resources your agent might create, such as temporary files or database entries. This prevents collisions between concurrent assessments.
--   **Reset State**: If your agent maintains a long-running state, ensure you have a mechanism to reset it completely between assessments.
-
-Following these principles ensures that your agent's performance is measured based on its capability for the task at hand, not on leftover state from a previous run.
-
-
-## Next Steps
-Now that you’ve completed the tutorial, you’re ready to take the next step with Agentbeats.
-
-- 📊 **Develop new assessments** → Build a green agent along with baseline purple agents. Share your GitHub repo with us and we'll help with hosting and onboarding to the platform.
-- 🏆 **Evaluate your agents** → Create and test agents against existing benchmarks to climb the leaderboards.
-- 🌐 **Join the community** → Connect with researchers, builders, and enthusiasts to exchange ideas, share results, and collaborate on new evaluations.
-
-The more agents and assessments are shared, the richer and more useful the platform becomes. We’re excited to see what you create!
+- [GAIA Benchmark Paper](https://arxiv.org/abs/2311.12983)
+- [DocVQA Dataset](https://www.docvqa.org/)
+- [SEALQA Dataset](https://github.com/microsoft/SEALQA)
+- [A2A Protocol](https://a2a-protocol.org/)
+- [Google ADK Documentation](https://google.github.io/adk-docs/)
