@@ -1,53 +1,131 @@
-## Quickstart
+# GAIA Extension Benchmarking (Green Agent) for AgentBeats
+
+This is a repository for extended GAIA benchmarking implementation, following the AgentBeats framework.
+
+This benchmark evaluate general AI assistant on real-world questions requiring multi-step reasoning, tool use, and web search. 
+
+## Overview
+
+This is an **agentified** implementation of an extended [GAIA Benchmark](https://huggingface.co/gaia-benchmark) on the [AgentBeats](https://agentbeats.org) platform. This benchmark coverd following datasets.
+
+1. **GAIA** - General AI Assistant benchmark with 450+ real-world questions requiring multi-step reasoning and tool use
+2. **DocVQA** - Document Visual Question Answering tasks testing understanding of document images, layout, and embedded text
+3. **SEALQA** - Search-augmented QA tasks stressing evidence selection and reasoning under noisy/conflicting web results
+
+The evaluated AI assistant should have following **Capabilities:**
+
+- **Reasoning** over real-world queries challenging for AI but straightforward for humans
+- **Web browsing** and evidence gathering from multiple sources
+- **Tool-use proficiency** - deciding when and how to use external tools for verifiable answers
+- **Multimodal handling** including images, PDFs, Excel files, and other document formats
+- **Code execution** for data analysis, web scraping, and computational tasks
+- **Wikipedia API access** for historical edit information
+- **Stock market data** retrieval and analysis
+
+## How to start
 1. Clone the repo
 ```
-git clone git@github.com:agentbeats/tutorial.git agentbeats-tutorial
-cd agentbeats-tutorial
+git clone https://github.com/zpyuan6/tutorial.git
+cd tutorial
 ```
 2. Install dependencies
 ```
 uv sync
 ```
 3. Set environment variables
-```
-cp sample.env .env
-```
-Add your Google API key to the .env file
 
-4. Run the [debate example](#example)
+Add your Google API key to the .env file and login to HuggingFace (for access GAIA benchmarking dataset) by 
 ```
-uv run agentbeats-run scenarios/debate/scenario.toml
+hf auth login
+```
+
+4. Run the extended GAIA Evaluator
+
+File scenario.toml define the running parameter of evaluating scenario. You can control the evaluation process by adjust the parameter setting.
+
+You can run all evaluating, covering three dataset by
+```
+uv run agentbeats-run scenarios/GAIA/scenario.toml
 ```
 This command will:
 - Start the agent servers using the commands specified in scenario.toml
 - Construct an `assessment_request` message containing the participant's role-endpoint mapping and the assessment config
 - Send the `assessment_request` to the green agent and print streamed responses
 
+This will evaluate a general-purpose assistant on three challenging benchmarks:
+- **GAIA** - 100+ real-world questions (validation dataset) across 3 difficulty levels
+- **DocVQA** - Document visual question answering (images, PDFs, layouts)
+- **SEALQA** - Search-augmented QA with noisy web results
+
 **Note:** Use `--show-logs` to see agent outputs during the assessment, and `--serve-only` to start agents without running the assessment.
-
-To run this example manually, start the agent servers in separate terminals, and then in another terminal run the A2A client on the scenario.toml file to initiate the assessment.
-
-After running, you should see an output similar to this.
-
-![Sample output](assets/sample_output.png)
 
 ## Project Structure
 ```
-src/
-└─ agentbeats/
-   ├─ green_executor.py        # base A2A green agent executor
-   ├─ models.py                # pydantic models for green agent IO
-   ├─ client.py                # A2A messaging helpers
-   ├─ client_cli.py            # CLI client to start assessment
-   └─ run_scenario.py          # run agents and start assessment
+src/agentbeats/
+├─ green_executor.py           # Base A2A green agent executor
+├─ models.py                   # Pydantic models for green agent IO
+├─ client.py                   # A2A messaging helpers
+├─ tool_provider.py            # Tool provider for agent interactions
+└─ run_scenario.py             # Orchestrates agent startup and assessment
 
-scenarios/
-└─ debate/                     # implementation of the debate example
-   ├─ debate_judge.py          # green agent impl using the official A2A SDK
-   ├─ adk_debate_judge.py      # alternative green agent impl using Google ADK
-   ├─ debate_judge_common.py   # models and utils shared by above impls
-   ├─ debater.py               # debater agent (Google ADK)
-   └─ scenario.toml            # config for the debate example
+scenarios/GAIA/                       # EXTENDED GAIA BENCHMARK (Primary)
+├─ assistant.py             # Purple agent - General-purpose assistant
+├─ assistant_evaluator.py   # Green agent - Evaluates on GAIA/DocVQA/SEALQA
+├─ assistant_evaluation_common.py  # Shared models and definitions
+├─ tools.py                 # Tool suite (web, files, vision, code execution)
+├─ scenario.toml            # Configuration for GAIA benchmark
+├─ Dockerfile.GAIA-agent    # Docker for assistant
+├─ Dockerfile.GAIA-evaluator # Docker for evaluator
+└─ workspace/               # Working directory for evaluation
+
+```
+
+## 🌟 GAIA Benchmark (Primary Scenario)
+
+The GAIA scenario is the recommended starting point for evaluating AI assistants:
+
+**What it evaluates:**
+- **General AI Assistants** with real-world problem-solving capabilities
+- **Three benchmark datasets**: GAIA (QA), DocVQA (visual docs), SEALQA (web search)
+- **Three difficulty levels**: Level 1 (simple), Level 2 (complex), Level 3 (expert)
+
+**Key capabilities tested:**
+- Multi-step reasoning and planning
+- Tool-use proficiency (web browsing, file operations, code execution)
+- Multimodal understanding (text, images, PDFs, Excel files)
+- Wikipedia and stock market data retrieval
+- Error handling and safe refusals
+
+
+**See detailed docs:** [GAIA README](scenarios/GAIA/README.md)
+
+
+## Dockernize
+
+This project provide dockerfiles and Github Workflow for dockernizing the green (evaluator) and purple (assistant) agents.
+
+### Manually Build Docker
+
+Build docker image is not neccessary, as the corresponding images are built with Github Workflow. You can directly pull the corresponding images.
+But if you want, you can use following comments to build docker image in local. 
+```
+<!-- Build evaluator -->
+docker build --platform linux/amd64 --build-arg HF_TOKEN=%HF_TOKEN% -t ghcr.io/zpyuan6/tutorial-gaia_extension:latest -f scenarios\GAIA\Dockerfile.GAIA-evaluator .
+<!-- Build assistant -->
+docker build --platform linux/amd64 --build-arg GOOGLE_API_KEY=%GOOGLE_API_KEY% -t ghcr.io/zpyuan6/tutorial-gaia_agent:latest -f scenarios\GAIA\Dockerfile.GAIA-agent .
+```
+
+### Run with Docker in Local 
+
+As containers require network connectivity, running under host model is most easy way. You can run the images with following commands.
+```
+docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_extension:latest --host 127.0.0.1
+docker run --network host -d ghcr.io/zpyuan6/tutorial-gaia_agent:latest --host 127.0.0.1
+```
+Then, you can run the senario.
+
+```
+uv run agentbeats-run scenarios/GAIA/scenario.toml
 ```
 
 # AgentBeats Tutorial
@@ -70,10 +148,16 @@ By the end, you’ll understand:
 This guide will help you quickly get started with AgentBeats and contribute to a growing ecosystem of open agent benchmarks.
 
 ## Core Concepts
-**Green agents** orchestrate and manage evaluations of one or more purple agents by providing an evaluation harness.
-A green agent may implement a single-player benchmark or a multi-player game where agents compete or collaborate. It sets the rules of the game, hosts the match and decides results.
 
-**Purple agents** are the participants being evaluated. They possess certain skills (e.g. computer use) that green agents evaluate. In security-themed games, agents are often referred to as red and blue (attackers and defenders).
+**Green agents** orchestrate and manage evaluations of one or more purple agents by providing an evaluation harness.
+- In GAIA: The green agent loads datasets, sends queries, scores responses, and generates results
+- A green agent may implement a single-player benchmark or a multi-player game where agents compete or collaborate
+- It sets the rules, hosts the match, and decides results
+
+**Purple agents** are the participants being evaluated. They possess certain skills that green agents assess.
+- In GAIA: The purple agent is the assistant being evaluated on QA, visual QA, and search tasks
+- They demonstrate capabilities like reasoning, tool-use, and multimodal understanding
+- In security-themed games, agents are referred to as red and blue (attackers and defenders)
 
 An **assessment** is a single evaluation session hosted by a green agent and involving one or more purple agents. Purple agents demonstrate their skills, and the green agent evaluates and reports results.
 
@@ -112,13 +196,36 @@ Below are some common patterns to help guide your assessment design.
 #### Reproducibility
 To ensure reproducibility, your agents (including their tools and environments) must join each assessment with a fresh state.
 
-### Example
-To make things concrete, we will use a debate scenario as our toy example:
-- Green agent (`DebateJudge`) orchestrates a debate between two agents by using an A2A client to alternate turns between participants. Each participant's response is forwarded to the caller as a task update. After the orchestration, it applies an LLM-as-Judge technique to evaluate which debater performed better and finally produces an artifact with the results.
-- Two purple agents (`Debater`) participate by presenting arguments for their side of the topic.
+### 🌟 Primary Example: GAIA Benchmark
 
-To run this example, we start all three servers and then use an A2A client to send an `assessment_request` to the green agent and observe its outputs.
-The full example code is given in the template repository. Follow the quickstart guide to setup the project and run the example.
+The GAIA scenario demonstrates a sophisticated evaluation system:
+- **Green agent** (`GAIAAssistantEvaluator`) orchestrates three separate benchmark evaluations
+  - Loads datasets from HuggingFace (GAIA, DocVQA, SEALQA)
+  - Sends queries to the assistant with attachments (documents, images)
+  - Scores responses using task-specific metrics
+  - Generates detailed JSON results with per-query analysis
+  - Computes overall capability scores
+
+- **Purple agent** (`Assistant`) is a general-purpose AI assistant with:
+  - Web browsing and search capabilities
+  - File reading/writing (PDF, Excel, images, text)
+  - Python code execution environment
+  - Wikipedia API access
+  - Stock market data retrieval
+  - Artifact handling for user uploads
+
+To run, execute: `uv run agentbeats-run scenarios/GAIA/scenario.toml`
+
+Results include detailed metrics and are saved to `scenarios/GAIA/workspace/results/`.
+
+### Secondary Example: Debate Scenario
+
+For a simpler introduction to agent development:
+- Green agent (`DebateJudge`) orchestrates debate between two agents
+- Purple agents (`Debater`) present arguments for their assigned positions
+- LLM-as-Judge evaluation determines winner
+
+To run, execute: `uv run agentbeats-run scenarios/debate/scenario.toml`
 
 ### Dockerizing Agent
 
@@ -221,10 +328,17 @@ For benchmarks to be fair and meaningful, every assessment run must be independe
 Following these principles ensures that your agent's performance is measured based on its capability for the task at hand, not on leftover state from a previous run.
 
 ## Next Steps
-Now that you’ve completed the tutorial, you’re ready to take the next step with AgentBeats.
 
+### Evaluate Your Assistant
+- 🌟 **Run GAIA Benchmark** → Test your assistant on GAIA, DocVQA, and SEALQA (primary scenario)
+- 📊 **Analyze Results** → Review detailed metrics in `scenarios/GAIA/workspace/results/`
+- 🔧 **Customize Config** → Modify `scenarios/GAIA/scenario.toml` for different evaluation levels
+- 📖 **Detailed Guide** → See [GAIA Benchmark README](scenarios/GAIA/README.md) for advanced options
+
+### Develop on AgentBeats
 - 📊 **Develop new assessments** → Build a green agent along with baseline purple agents. Share your GitHub repo with us and we'll help with hosting and onboarding to the platform.
-- 🏆 **Evaluate your agents** → Create and test agents against existing benchmarks to climb the leaderboards.
+- 🛠️ **Extend Tools** → Add new capabilities to `scenarios/GAIA/tools.py` for enhanced assistant abilities
+- 🏆 **Evaluate your agents** → Create and test agents against GAIA or design new benchmarks
 - 🌐 **Join the community** → Connect with researchers, builders, and enthusiasts to exchange ideas, share results, and collaborate on new evaluations.
 
 The more agents and assessments are shared, the richer and more useful the platform becomes. We’re excited to see what you create!
